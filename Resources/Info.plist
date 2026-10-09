@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>talkie</string>
+<key>CFBundleIdentifier</key><string>co.kewekiwi.talkie</string>
+<key>CFBundleName</key><string>talkie</string>
+<key>CFBundleDisplayName</key><string>talkie</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>LSMinimumSystemVersion</key><string>15.0</string>
+<key>NSPrincipalClass</key><string>NSApplication</string>
+<key>NSMicrophoneUsageDescription</key><string>talkie records your microphone only when you start dictation or a meeting, and transcribes it locally.</string>
+<key>NSAudioCaptureUsageDescription</key><string>talkie captures separate microphone and system audio only for meetings you deliberately start.</string>
+</dict></plist>

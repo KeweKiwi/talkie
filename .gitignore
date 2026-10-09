@@ -12,3 +12,5 @@ DerivedData/
 *.mobileprovision
 *.xcuserstate
 xcuserdata/
+__pycache__/
+*.pyc
