@@ -1,0 +1,86 @@
+{
+  "asr": {
+    "engine": "WhisperKit OSS 1.1.1",
+    "model": "openai_whisper-large-v3-v20240930_626MB",
+    "repository": "argmaxinc/whisperkit-coreml",
+    "revision": "0f63a7800b00dd0226abd051b906c246e1907482",
+    "tokenizer_repository": "openai/whisper-large-v3",
+    "tokenizer_revision": "06f233fe06e710322aca913c1bc4249a0d71fce1",
+    "task": "transcribe",
+    "default_language": "auto/mixed",
+    "dictionary_default": "empty",
+    "weights_bytes": 626718238,
+    "manifest": "Resources/asr-manifest.json"
+  },
+  "text": {
+    "runtime": "Ollama 0.40.1",
+    "runtime_archive_sha256": "66e1587711f3a06315b23782ba74897001da6c8b8edf6c0371f7533015a076dd",
+    "endpoint": "http://127.0.0.1:11434",
+    "cleanup_initially_enabled": false,
+    "cleanup_default": "gemma4:e4b-it-qat",
+    "summary_default": "gemma4:e4b-it-qat",
+    "cleanup_prompt": "faithful-editor-v1",
+    "summary_prompt": "grounded-summary-v2",
+    "thinking": false,
+    "temperature": 0,
+    "seed": 42,
+    "num_ctx": 8192,
+    "num_predict": 2048,
+    "keep_alive": 0,
+    "max_payload_utf8_bytes": 6000,
+    "summary_batch_utf8_budget": 4000,
+    "models": [
+      {
+        "tag": "qwen3.5:9b-q4_K_M",
+        "digest": "56671c2ab9385f9cfcb404638e32cd62d88e3501d44822208363c010179a3c90",
+        "details_reported_by_runtime": {
+          "parent_model": "model.gguf",
+          "format": "gguf",
+          "family": "qwen35",
+          "families": [
+            "qwen35"
+          ],
+          "parameter_size": "9.0B",
+          "quantization_level": "Q4_K_M",
+          "runner": "llamacpp"
+        },
+        "download_bytes": 6550825550,
+        "measured_resident_allocation_bytes": 5765165219,
+        "cold_cleanup_seconds": 8.998,
+        "nonthinking_supported": {
+          "values": [
+            false,
+            true
+          ],
+          "default": true
+        },
+        "license": "Apache-2.0"
+      },
+      {
+        "tag": "gemma4:e4b-it-qat",
+        "digest": "ee665637121887cf3befff38abbb1be4ee117c7db867d97a67e29049ecd7e15f",
+        "details_reported_by_runtime": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "gemma4",
+          "families": [
+            "gemma4"
+          ],
+          "parameter_size": "7.5B",
+          "quantization_level": "Q4_0"
+        },
+        "download_bytes": 6146501801,
+        "measured_resident_allocation_bytes": 3097378159,
+        "cold_cleanup_seconds": 5.092,
+        "nonthinking_supported": {
+          "values": [
+            false,
+            true
+          ],
+          "default": true
+        },
+        "license": "Apache-2.0"
+      }
+    ]
+  }
+}

@@ -1,0 +1,184 @@
+[
+  {
+    "model": "qwen3.5:9b-q4_K_M",
+    "digest": "56671c2ab9385f9cfcb404638e32cd62d88e3501d44822208363c010179a3c90",
+    "prompt_version": "grounded-summary-v2",
+    "latency": 35.59468941699015,
+    "output": {
+      "overview": [
+        {
+          "text": "Diskusi mengenai jadwal deploy, lingkungan QA/Staging, koreksi tanggal review, dan anggaran.",
+          "references": [
+            "s1",
+            "s2",
+            "s3",
+            "s4"
+          ],
+          "owner": null,
+          "deadline": null
+        }
+      ],
+      "discussion": [
+        {
+          "text": "Usulan untuk deploy pada hari Senin masih dalam tahap proposal.",
+          "references": [
+            "s1"
+          ],
+          "owner": null,
+          "deadline": null
+        },
+        {
+          "text": "Tidak boleh langsung ke production. Jika QA lolos, mungkin Jumat bisa release ke staging.",
+          "references": [
+            "s2"
+          ],
+          "owner": null,
+          "deadline": null
+        },
+        {
+          "text": "Koreksi jadwal: bukan Senin, melainkan sepakat untuk review pada Selasa jam dua. Belum ditentukan siapa yang bertanggung jawab.",
+          "references": [
+            "s3"
+          ],
+          "owner": null,
+          "deadline": null
+        },
+        {
+          "text": "Anggaran adalah lima ratus ribu, bukan lima juta. Masalah login Payload CMS masih terbuka.",
+          "references": [
+            "s4"
+          ],
+          "owner": null,
+          "deadline": null
+        }
+      ],
+      "decisions": [
+        {
+          "text": "Disepakati jadwal review pada Selasa jam dua.",
+          "references": [
+            "s3"
+          ],
+          "owner": null,
+          "deadline": null
+        },
+        {
+          "text": "Tidak boleh deploy ke production dulu; jika QA lolos, mungkin Jumat bisa release ke staging.",
+          "references": [
+            "s2"
+          ],
+          "owner": null,
+          "deadline": null
+        }
+      ],
+      "actions": [],
+      "questions": [
+        {
+          "text": "Siapa yang bertanggung jawab untuk review pada Selasa jam dua?",
+          "references": [
+            "s3"
+          ],
+          "owner": null,
+          "deadline": null
+        },
+        {
+          "text": "Masalah login Payload CMS masih terbuka.",
+          "references": [
+            "s4"
+          ],
+          "owner": null,
+          "deadline": null
+        }
+      ]
+    },
+    "thinking_empty": true,
+    "prompt_tokens": 548,
+    "output_tokens": 506
+  },
+  {
+    "model": "gemma4:e4b-it-qat",
+    "digest": "ee665637121887cf3befff38abbb1be4ee117c7db867d97a67e29049ecd7e15f",
+    "prompt_version": "grounded-summary-v2",
+    "latency": 22.08680945803644,
+    "output": {
+      "overview": [
+        {
+          "text": "Diskusi mengenai jadwal deployment dan beberapa isu teknis terkait.",
+          "references": [
+            "s1",
+            "s2",
+            "s3",
+            "s4"
+          ],
+          "owner": null,
+          "deadline": null
+        }
+      ],
+      "discussion": [
+        {
+          "text": "Ada usulan untuk melakukan deployment pada hari Senin, namun ini masih berupa proposal.",
+          "references": [
+            "s1"
+          ],
+          "owner": null,
+          "deadline": null
+        },
+        {
+          "text": "Terdapat saran bahwa jika QA lolos, pelepasan ke staging mungkin bisa dilakukan pada hari Jumat, namun ini bersifat tentatif.",
+          "references": [
+            "s2"
+          ],
+          "owner": null,
+          "deadline": null
+        },
+        {
+          "text": "Terdapat koreksi mengenai jadwal, yaitu disepakati untuk melakukan review pada hari Selasa jam dua.",
+          "references": [
+            "s3"
+          ],
+          "owner": null,
+          "deadline": null
+        },
+        {
+          "text": "Terdapat koreksi mengenai anggaran, yaitu sebesar lima ratus ribu, bukan lima juta.",
+          "references": [
+            "s4"
+          ],
+          "owner": null,
+          "deadline": null
+        }
+      ],
+      "decisions": [
+        {
+          "text": "Disepakati untuk melakukan review pada hari Selasa jam dua.",
+          "references": [
+            "s3"
+          ],
+          "owner": null,
+          "deadline": null
+        }
+      ],
+      "actions": [],
+      "questions": [
+        {
+          "text": "Siapa yang bertanggung jawab untuk review pada hari Selasa jam dua?",
+          "references": [
+            "s3"
+          ],
+          "owner": null,
+          "deadline": null
+        },
+        {
+          "text": "Masalah login Payload CMS masih terbuka.",
+          "references": [
+            "s4"
+          ],
+          "owner": null,
+          "deadline": null
+        }
+      ]
+    },
+    "thinking_empty": true,
+    "prompt_tokens": 539,
+    "output_tokens": 511
+  }
+]

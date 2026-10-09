@@ -1,0 +1,70 @@
+{
+  "accessibility_trusted" : true,
+  "cleanup" : {
+    "digest" : "ee665637121887cf3befff38abbb1be4ee117c7db867d97a67e29049ecd7e15f",
+    "latency" : 6.6040949821472168,
+    "model" : "gemma4:e4b-it-qat",
+    "needs_review" : false,
+    "output" : "Aku pakai Payload CMS, but the admin page still fails after login.",
+    "raw" : "Aku pakai Payload CMS, but the admin page still fails after login.",
+    "runtime" : "0.40.1"
+  },
+  "cleanup_calls" : 1,
+  "microphone_permission" : 3,
+  "screen_capture_permission" : true,
+  "summary" : {
+    "content" : {
+      "actions" : [
+
+      ],
+      "decisions" : [
+        {
+          "references" : [
+            "s3"
+          ],
+          "text" : "Disepakati untuk melakukan review pada hari Selasa jam dua."
+        }
+      ],
+      "discussion" : [
+        {
+          "references" : [
+            "s2"
+          ],
+          "text" : "Tidak boleh langsung ke produksi. Jika QA lolos, mungkin bisa dirilis ke staging pada hari Jumat."
+        },
+        {
+          "references" : [
+            "s4"
+          ],
+          "text" : "Anggaran yang dimaksud adalah lima ratus ribu, bukan lima juta."
+        }
+      ],
+      "overview" : [
+        {
+          "references" : [
+            "s1"
+          ],
+          "text" : "Dia mengusulkan untuk melakukan deployment pada hari Senin, namun ini masih berupa proposal."
+        }
+      ],
+      "questions" : [
+        {
+          "references" : [
+            "s4"
+          ],
+          "text" : "Masalah login Payload CMS masih terbuka."
+        }
+      ]
+    },
+    "createdAt" : 813202185.566486,
+    "digest" : "ee665637121887cf3befff38abbb1be4ee117c7db867d97a67e29049ecd7e15f",
+    "id" : "94E40D1C-4675-48F6-A33C-50298788B098",
+    "language" : "Bahasa Indonesia",
+    "model" : "gemma4:e4b-it-qat",
+    "promptVersion" : "grounded-summary-v2",
+    "runtime" : "0.40.1",
+    "transcriptID" : "FC2876AE-9F3D-497C-B1D9-3C3943E71566"
+  },
+  "summary_latency" : 14.522045016288757,
+  "synthetic_only" : true
+}
