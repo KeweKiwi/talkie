@@ -7,14 +7,17 @@ import TalkieCore
 struct SettingsView: View {
     @Bindable var store: AppStore
     @State private var removeModel = false
+    @State private var deleteLegacy = false
     @State private var permissionStatus = ""
     var body: some View {
         @Bindable var preferences = store.preferences
         TabView {
             Form {
                 Section("Dictation") {
+                    Toggle("Enable System-Wide Dictation", isOn: $preferences.systemWideEnabled)
+                    Toggle("Auto Insert After Dictation", isOn: $preferences.autoInsert)
                     Toggle("AI Cleanup ON", isOn: $preferences.cleanupEnabled)
-                    Text("OFF skips Ollama entirely. ON creates an editable preview; original ASR is retained.").font(.caption).foregroundStyle(.secondary)
+                    Text("The shortcut records without switching apps. Auto Insert replaces only a verified selection. OFF skips Ollama; ON inserts accepted cleanup. Cleanup failure or suspect rewrites use complete raw ASR. Unsafe destinations use temporary recovery. Dictation is never archived.").font(.caption).foregroundStyle(.secondary)
                     Picker("Recognition language", selection: $preferences.language) { ForEach(RecognitionLanguage.allCases, id: \.self) { Text($0.title).tag($0) } }
                     Toggle("Push-to-talk (hold shortcut)", isOn: $preferences.pushToTalk)
                     Picker("Shortcut key", selection: $preferences.shortcutKey) {
@@ -26,6 +29,7 @@ struct SettingsView: View {
                         Text("Control + Command").tag(UInt32(controlKey | cmdKey))
                     }
                     Text(store.shortcutStatus).font(.caption).foregroundStyle(.secondary)
+                    Text(TextInsertionService.trusted ? "Accessibility available for automatic insertion." : "Accessibility unavailable; dictation remains recoverable as preview/Copy.").font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Permissions") {
                     Button("Request Microphone Access") { permissionStatus = "Requesting microphone permission…"; Task { do { try await AudioRecorder.requestMicrophone(); permissionStatus = "Microphone permission granted." } catch { permissionStatus = error.localizedDescription } } }
@@ -69,8 +73,12 @@ struct SettingsView: View {
             }.formStyle(.grouped).tabItem { Label("Recognition", systemImage: "text.book.closed") }
             Form {
                 Section("Private local storage") {
-                    Text("Audio, raw versions, corrections, and summaries are stored in your Application Support/talkie folder with restrictive file permissions. No analytics or transcript logging.")
-                    Text("Successful raw dictation removes temporary audio. Cancelled, failed, or cleaned dictation retains audio for recovery; use Delete Audio after review. Meetings retain audio until you delete it. Deletion is normal file deletion, not secure erasure.").foregroundStyle(.secondary)
+                    Text("Meeting audio, raw versions, corrections, and summaries are stored in your Application Support/talkie folder with restrictive file permissions. No analytics or transcript logging.")
+                    Text("Dictation uses engine-required temporary WAV files outside the meeting library, removed after processing, cancellation, or failure. Orphans are removed after restart. One in-memory recovery expires after 60 seconds or dismissal. No dictation text or field context is archived. Meetings retain audio until deletion. Normal deletion is not forensic secure erasure.").foregroundStyle(.secondary)
+                    if store.legacyDictationCount > 0 {
+                        Button("Delete Old Dictation History…", role: .destructive) { deleteLegacy = true }.disabled(store.recording || store.isBusy)
+                        Text("\(store.legacyDictationCount) old dictation archives remain. This explicit migration preserves every meeting.").font(.caption)
+                    }
                     Button("Reveal Local Data") { NSWorkspace.shared.open(AppPaths.root) }
                     Text(AppPaths.root.path).font(.caption.monospaced()).textSelection(.enabled)
                 }
@@ -80,8 +88,13 @@ struct SettingsView: View {
                 }
             }.formStyle(.grouped).tabItem { Label("Privacy", systemImage: "lock") }
         }.padding(12)
+            .onChange(of: preferences.systemWideEnabled) { _, _ in store.configureShortcut() }
             .onChange(of: preferences.shortcutKey) { _, _ in store.configureShortcut() }
             .onChange(of: preferences.shortcutModifiers) { _, _ in store.configureShortcut() }
+            .alert("Delete old dictation history?", isPresented: $deleteLegacy) {
+                Button("Delete Old Dictations", role: .destructive) { store.deleteLegacyDictations() }
+                Button("Cancel", role: .cancel) {}
+            } message: { Text("Deletes only old dictation archives and their audio. Meetings, transcripts, summaries, and settings remain. This cannot be undone in talkie.") }
             .alert("Remove the downloaded speech model?", isPresented: $removeModel) { Button("Remove", role: .destructive) { store.removeSpeechModel() }; Button("Cancel", role: .cancel) {} } message: { Text("Recordings and transcripts remain. Transcription requires downloading this model again.") }
     }
 }

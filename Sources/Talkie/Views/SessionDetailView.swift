@@ -6,9 +6,6 @@ struct SessionDetailView: View {
     @Bindable var store: AppStore
     let session: RecordingSession
     @State private var versionID: UUID?
-    @State private var showOriginal = false
-    @State private var editingDictation = false
-    @State private var dictationEdit = ""
     @State private var editingTranscript = false
     @State private var editingSummary = false
     @State private var summaryEdit = ""
@@ -30,20 +27,6 @@ struct SessionDetailView: View {
                     } label: { Image(systemName: "ellipsis.circle") }.disabled(store.recording || store.isBusy)
                 }
                 if let error = session.error { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).textSelection(.enabled) }
-                if session.kind == .dictation, let result = session.dictation {
-                    GroupBox {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack { Text(result.cleanupStatus).font(.headline); Spacer(); Button("Copy") { store.copy(result.output) } }
-                            Text(result.output).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-                            Button("Review / Edit Output…") { dictationEdit = result.cleaned ?? result.original; editingDictation = true }
-                            if result.usedOriginal, let candidate = result.cleaned { DisclosureGroup("Show Cleaned Candidate") { Text(candidate).textSelection(.enabled) } }
-                            DisclosureGroup("Show Original", isExpanded: $showOriginal) {
-                                Text(result.original).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled).padding(.vertical, 8)
-                                Button("Use Original") { store.useOriginal(session.id) }
-                            }
-                        }.padding(8)
-                    }
-                }
                 HStack {
                     Button(session.versions.isEmpty ? "Transcribe Saved Audio" : "Create New ASR Version", systemImage: "waveform") { store.transcribe(session.id) }.disabled(!session.audioRetained || store.isBusy || store.recording)
                     if !session.audioRetained { Text("Audio removed").font(.caption).foregroundStyle(.secondary) }
@@ -111,14 +94,6 @@ struct SessionDetailView: View {
             }.padding(28)
         }
         .alert("Delete this session and its files?", isPresented: $deleteConfirmation) { Button("Delete", role: .destructive) { store.deleteSession(session.id) }; Button("Cancel", role: .cancel) {} } message: { Text("This deletes retained audio, all transcript versions, and summaries. It cannot be undone in talkie.") }
-        .sheet(isPresented: $editingDictation) {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Review dictation output").font(.title2)
-                Text("Confirm meaning, language, numbers and scope against the original. Saving does not insert or submit text.").foregroundStyle(.secondary)
-                TextEditor(text: $dictationEdit)
-                HStack { Button("Cancel") { editingDictation = false }; Spacer(); Button("Save Reviewed Text") { store.saveReviewedDictation(session.id, text: dictationEdit); editingDictation = false }.buttonStyle(.borderedProminent) }
-            }.padding(24).frame(width: 650, height: 400)
-        }
         .sheet(isPresented: $editingTranscript) { if let version { TranscriptCorrectionView(store: store, sessionID: session.id, source: version) } }
         .sheet(isPresented: $editingSummary) {
             VStack(alignment: .leading, spacing: 16) {

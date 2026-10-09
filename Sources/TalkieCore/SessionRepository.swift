@@ -37,4 +37,11 @@ public final class SessionRepository: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         try FileManager.default.removeItem(at: directory(id))
     }
+    /// Called only by the explicit, confirmed legacy migration action.
+    @discardableResult public func deleteLegacyDictations() throws -> Int {
+        lock.lock(); defer { lock.unlock() }
+        let old = try load().filter { $0.kind == .dictation }
+        for session in old { try delete(session.id) }
+        return old.count
+    }
 }

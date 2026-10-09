@@ -15,10 +15,12 @@ final class AudioRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     static func requestMicrophone() async throws {
         guard await AVCaptureDevice.requestAccess(for: .audio) else { throw TalkieError.message("Microphone access was denied. Enable talkie in System Settings → Privacy & Security → Microphone.") }
     }
-    @MainActor func start(session: RecordingSession, repository: SessionRepository, microphoneID: String, systemApp: pid_t?) async throws {
+    @MainActor func start(session: RecordingSession, repository: SessionRepository? = nil, transientDirectory: URL? = nil, microphoneID: String, systemApp: pid_t?) async throws {
         try await Self.requestMicrophone()
         let startHost = ProcessInfo.processInfo.systemUptime
-        writer = try AudioChunkWriter(session: session, repository: repository, startHost: startHost)
+        if let repository { writer = try AudioChunkWriter(session: session, repository: repository, startHost: startHost) }
+        else if let transientDirectory { writer = AudioChunkWriter(session: session, directory: transientDirectory, startHost: startHost) }
+        else { throw TalkieError.message("No audio destination available.") }
         writer?.onMeters = onMeters; failed = false
         do {
             if session.sources.contains(.system) {

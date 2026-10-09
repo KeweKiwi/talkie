@@ -6,18 +6,17 @@ struct ContentView: View {
     private enum Destination: Hashable { case area(String), session(UUID) }
     private var selection: Binding<Destination?> { Binding(get: { store.selectedID.map(Destination.session) ?? .area(store.area) }, set: { value in
         switch value { case .area(let area): store.area = area; store.selectedID = nil
-        case .session(let id): store.selectedID = id; if let session = store.selected { store.area = session.kind == .meeting ? "Meetings" : "Dictation" }
+        case .session(let id): store.selectedID = id; store.area = "Meetings"
         case nil: break }
     }) }
     var body: some View {
         NavigationSplitView {
             List(selection: selection) {
                 Section {
-                    Label("Dictation", systemImage: "mic").tag(Destination.area("Dictation"))
                     Label("Meetings", systemImage: "person.2").tag(Destination.area("Meetings"))
                 }
-                Section("Recent \(store.area.lowercased())") {
-                    ForEach(store.sessions.filter { $0.kind == (store.area == "Meetings" ? .meeting : .dictation) }) { session in
+                Section("Meetings") {
+                    ForEach(store.sessions) { session in
                         VStack(alignment: .leading, spacing: 3) {
                             Text(session.title).lineLimit(1)
                             Text(session.startedAt, format: .dateTime.month(.abbreviated).day().hour().minute()).font(.caption).foregroundStyle(.secondary)
@@ -27,10 +26,9 @@ struct ContentView: View {
             }.listStyle(.sidebar).navigationTitle("talkie").navigationSplitViewColumnWidth(min: 210, ideal: 240)
         } detail: {
             VStack(spacing: 0) {
-                if store.recording { RecordingControlsView(store: store).padding().background(.bar) }
+                if store.active != nil { RecordingControlsView(store: store).padding().background(.bar) }
                 if let session = store.selected { SessionDetailView(store: store, session: session).id(session.id) }
-                else if store.area == "Meetings" { MeetingSetupView(store: store) }
-                else { DictationView(store: store) }
+                else { MeetingSetupView(store: store) }
                 Divider()
                 HStack(spacing: 10) {
                     Circle().fill(store.recording ? .orange : .secondary).frame(width: 6, height: 6)

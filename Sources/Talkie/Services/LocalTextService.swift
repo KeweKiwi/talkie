@@ -60,7 +60,7 @@ actor LocalTextService {
         guard !digest.isEmpty else { throw TalkieError.message("Verify and pin the selected model digest in Settings before text inference.") }
         let identity = try await identity(model, pinnedDigest: digest)
         let schema: [String: Any] = ["type": "object", "properties": ["text": ["type": "string"], "needs_review": ["type": "boolean"]], "required": ["text", "needs_review"], "additionalProperties": false]
-        let data = try await finalJSON(identity: identity, prompt: EditingPolicy.prompt, data: ["raw_asr": original], schema: schema)
+        let data = try await finalJSON(identity: identity, prompt: EditingPolicy.prompt, data: ["raw_asr": original, "permitted_correction_reference": BacktrackingPolicy.reference(original)], schema: schema)
         let result = try JSONDecoder().decode(CleanupResponse.self, from: data)
         guard !result.text.isEmpty else { throw TalkieError.message("Cleanup returned no text; use the original.") }
         return (result, identity)

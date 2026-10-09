@@ -5,7 +5,8 @@ import TalkieCore
 /// Owned exclusively by the recorder's serial audio queue. No inference here.
 final class AudioChunkWriter {
     struct OpenChunk { var interval: CaptureInterval; var file: AVAudioFile; var frames: Int64 = 0 }
-    let repository: SessionRepository
+    private let repository: SessionRepository?
+    private let directory: URL
     var session: RecordingSession
     let startHost: Double
     private let clock: () -> Double
@@ -19,8 +20,15 @@ final class AudioChunkWriter {
     private var meters: [AudioSource: Float] = [:]
     private let output = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
     init(session: RecordingSession, repository: SessionRepository, startHost: Double, clock: @escaping () -> Double = { ProcessInfo.processInfo.systemUptime }) throws {
-        self.session = session; self.repository = repository; self.startHost = startHost; self.clock = clock
+        guard session.kind == .meeting else { throw TalkieError.message("Voice input cannot use the meeting archive.") }
+        self.session = session; self.repository = repository; self.directory = repository.directory(session.id); self.startHost = startHost; self.clock = clock
         try repository.save(session)
+    }
+    /// Transient dictation uses the same conversion/chunk writer, without any
+    /// session metadata or transcript persistence. Only engine-required WAVs.
+    init(session: RecordingSession, directory: URL, startHost: Double, clock: @escaping () -> Double = { ProcessInfo.processInfo.systemUptime }) {
+        self.session = session; self.repository = nil; self.directory = directory
+        self.startHost = startHost; self.clock = clock
     }
     var elapsed: Double { max(0, clock() - startHost) }
     func consume(_ input: AVAudioPCMBuffer, source: AudioSource, hostSeconds: Double) throws {
@@ -37,7 +45,7 @@ final class AudioChunkWriter {
         if elapsed - lastMeter > 0.15 { onMeters?(meters); lastMeter = elapsed }
         if open[source] == nil {
             let name = "\(source.rawValue)-\(Int64(offset * 1_000_000))-\(UUID().uuidString).wav"
-            let url = repository.directory(session.id).appendingPathComponent(name)
+            let url = directory.appendingPathComponent(name)
             let file = try AVAudioFile(forWriting: url, settings: output.settings, commonFormat: .pcmFormatFloat32, interleaved: false)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
             open[source] = OpenChunk(interval: CaptureInterval(source: source, start: offset, end: offset, state: .pending, file: name), file: file)
@@ -73,25 +81,25 @@ final class AudioChunkWriter {
         chunk = nil
         // Synchronize finalized audio before metadata lists it as durable.
         // A crash before the metadata save leaves an orphan for recovery.
-        let handle = try FileHandle(forWritingTo: repository.directory(session.id).appendingPathComponent(name))
+        let handle = try FileHandle(forWritingTo: directory.appendingPathComponent(name))
         try handle.synchronize(); try handle.close()
         session.coverage.append(interval)
         session.duration = elapsed
-        try repository.save(session)
+        try repository?.save(session)
     }
     func pause() throws {
         guard pausedAt == nil else { return }
         for source in session.sources { try flush(source) }
-        pausedAt = elapsed; session.status = .paused; try repository.save(session)
+        pausedAt = elapsed; session.status = .paused; try repository?.save(session)
     }
     func resume() throws {
         guard let start = pausedAt else { return }
         for source in session.sources { session.coverage.append(CaptureInterval(source: source, start: start, end: elapsed, state: .paused, note: "Deliberately paused")); previousEnd[source] = elapsed }
-        pausedAt = nil; session.status = .recording; try repository.save(session)
+        pausedAt = nil; session.status = .recording; try repository?.save(session)
     }
     func muteMicrophone(_ muted: Bool) throws {
         if muted && mutedAt == nil { try flush(.microphone); mutedAt = elapsed }
-        else if !muted, let start = mutedAt { session.coverage.append(CaptureInterval(source: .microphone, start: start, end: elapsed, state: .paused, note: "Recorder microphone muted")); mutedAt = nil; previousEnd[.microphone] = elapsed; try repository.save(session) }
+        else if !muted, let start = mutedAt { session.coverage.append(CaptureInterval(source: .microphone, start: start, end: elapsed, state: .paused, note: "Recorder microphone muted")); mutedAt = nil; previousEnd[.microphone] = elapsed; try repository?.save(session) }
     }
     func finish(incomplete: String? = nil) throws -> RecordingSession {
         try resume(); try muteMicrophone(false)
@@ -101,6 +109,6 @@ final class AudioChunkWriter {
             if elapsed - end > 0.75 { session.coverage.append(CaptureInterval(source: source, start: end, end: elapsed, state: .missing, note: "Source stopped or no buffers received")) }
         }
         session.duration = max(elapsed, session.coverage.map(\.end).max() ?? 0); session.status = incomplete == nil ? .saved : .incomplete; session.error = incomplete
-        try repository.save(session); return session
+        try repository?.save(session); return session
     }
 }

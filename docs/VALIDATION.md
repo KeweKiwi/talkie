@@ -1,5 +1,7 @@
 # Local validation — 2026-10-09
 
+This is a historical record of the initial MVP. The [current transient voice-input contract and validation](SYSTEM_WIDE_DICTATION.md) supersedes saved dictation history, preview-only cleanup and strict AX-notification requirements. Results below apply to the earlier build unless repeated in the current record.
+
 Target inspected directly: macOS 26.5.2 (25F84), arm64 Apple M5, 24 GiB RAM, roughly 314 GiB disk free at setup, Xcode 26.6 (17F113), Swift 6.3.1. The GitHub remote was successfully queried twice as empty before creating `main`; this is a new repository, not an unrelated-history merge. No hosted CI/release workflow was added.
 
 ## Executed checks
@@ -38,7 +40,7 @@ Same ten raw-text fixtures, Ollama 0.40.1, temperature 0, seed 42, 8192 context,
 | qwen3.5:9b-q4_K_M | 9.00 s | 2.39 s | 5,765,165,219 bytes | 21% | Translated the English part of mixed-language fixture 7 into Indonesian: critical fidelity failure; excluded from default automatic insertion |
 | gemma4:e4b-it-qat | 5.09 s | 1.07 s | 3,097,378,159 bytes | 27% | Preserved code-switching, scope, names/numbers/negation in these ten cases; did not flag the ambiguous Monday→Tuesday correction for review |
 
-Initial `grounded-summary-v1` outputs showed proposal/decision classification errors. After explicit decision/conditional grounding instructions in **v2**, Gemma kept the Tuesday decision and unknown owner, leaving conditional Friday release under discussion; Qwen still placed conditional statements under decisions. V2 Python comparison latencies were 22.09 s (Gemma) and 35.60 s (Qwen). Native Swift verification additionally ran the production schema/reference validation. No bounded-thinking comparison or constrained 4B candidate was run; the 24 GiB Mac did not require a downgrade. Both cleanup and summary initially select Gemma. Cleanup remains preview-only for every candidate, not an assertion of semantic reliability.
+Initial `grounded-summary-v1` outputs showed proposal/decision classification errors. After explicit decision/conditional grounding instructions in **v2**, Gemma kept the Tuesday decision and unknown owner, leaving conditional Friday release under discussion; Qwen still placed conditional statements under decisions. V2 Python comparison latencies were 22.09 s (Gemma) and 35.60 s (Qwen). Native Swift verification additionally ran the production schema/reference validation. No bounded-thinking comparison or constrained 4B candidate was run; the 24 GiB Mac did not require a downgrade. Both cleanup and summary initially select Gemma. In this historical build cleanup remained preview-only for every candidate. Current behavior is independently accepted automatic cleanup, with complete raw ASR on rejection/failure; see the current record above.
 
 Exact tags, digests, reported parameter/quantization details, prompt/runtime/decoding settings and sizes: [model-config.json](model-config.json). Actual outputs: [cleanup and v1 summary](fixtures/text-model-evaluation.json), [v2 summary](fixtures/summary-v2-evaluation.json), [native client](fixtures/native-text-verification.json). The original v1 record is preserved; rerunning evaluation scripts uses the current v2 prompt.
 

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>talkie local dictation fixture</title>
+<style>
+body { font: 18px system-ui; max-width: 800px; margin: 48px auto; padding: 20px; }
+label { display: block; margin-top: 28px; }
+textarea,input,[contenteditable] { font: inherit; padding: 16px; border: 1px solid #888; border-radius: 8px; width: 95%; }
+textarea,[contenteditable] { min-height: 100px; }
+</style>
+<h1>talkie local dictation fixture</h1>
+<p>Disposable local fields. No network requests, message submission, or forms.</p>
+<label for="selection">Plain textarea — select only [replace me]</label>
+<textarea id="selection">BEGIN [replace me] END</textarea>
+<label for="caret">Caret — put the cursor between the two spaces</label>
+<input id="caret" value="BEGIN  END">
+<label for="empty">Empty field</label>
+<textarea id="empty"></textarea>
+<label for="composer">Local composer fixture</label>
+<div id="composer" contenteditable="true" role="textbox" aria-label="Local composer fixture">BEGIN [replace me] END</div>
+<label for="protected">Password refusal — use synthetic text only</label>
+<input id="protected" type="password" value="synthetic-test-only">
+</html>

@@ -5,6 +5,8 @@ import Carbon
 
 @Observable @MainActor final class AppPreferences {
     var cleanupEnabled = false { didSet { save() } }
+    var systemWideEnabled = true { didSet { save() } }
+    var autoInsert = true { didSet { save() } }
     var language: RecognitionLanguage = .auto { didSet { save() } }
     var summaryLanguage = "Bahasa Indonesia" { didSet { save() } }
     var cleanupModel = "gemma4:e4b-it-qat" { didSet { save() } }
@@ -30,6 +32,7 @@ import Carbon
             cleanupModel = p.cleanupModel; summaryModel = p.summaryModel; dictionary = p.dictionary
             pushToTalk = p.pushToTalk; shortcutKey = p.shortcutKey; shortcutModifiers = p.shortcutModifiers
             microphoneID = p.microphoneID; cleanupDigest = p.cleanupDigest; summaryDigest = p.summaryDigest
+            systemWideEnabled = p.systemWideEnabled ?? true; autoInsert = p.autoInsert ?? true
         }
         loading = false
     }
@@ -38,7 +41,9 @@ import Carbon
         var cleanupModel: String; var summaryModel: String; var dictionary: String
         var pushToTalk: Bool; var shortcutKey: UInt32; var shortcutModifiers: UInt32; var microphoneID: String
         var cleanupDigest: String; var summaryDigest: String
+        // Optional only for backwards-compatible decoding of preferences-v1.
+        var systemWideEnabled: Bool? = true; var autoInsert: Bool? = true
     }
-    var snapshot: Snapshot { Snapshot(cleanupEnabled: cleanupEnabled, language: language, summaryLanguage: summaryLanguage, cleanupModel: cleanupModel, summaryModel: summaryModel, dictionary: dictionary, pushToTalk: pushToTalk, shortcutKey: shortcutKey, shortcutModifiers: shortcutModifiers, microphoneID: microphoneID, cleanupDigest: cleanupDigest, summaryDigest: summaryDigest) }
+    var snapshot: Snapshot { Snapshot(cleanupEnabled: cleanupEnabled, language: language, summaryLanguage: summaryLanguage, cleanupModel: cleanupModel, summaryModel: summaryModel, dictionary: dictionary, pushToTalk: pushToTalk, shortcutKey: shortcutKey, shortcutModifiers: shortcutModifiers, microphoneID: microphoneID, cleanupDigest: cleanupDigest, summaryDigest: summaryDigest, systemWideEnabled: systemWideEnabled, autoInsert: autoInsert) }
     private func save() { if !loading, let data = try? JSONEncoder().encode(snapshot) { defaults.set(data, forKey: "preferences-v1") } }
 }

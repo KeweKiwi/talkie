@@ -18,7 +18,7 @@ assert not any(k.endswith('_error') for k in r), r
 assert len(r['asr'])==6 and r['silence_detected'] and r['silence_segments']==0
 assert r['preferences_restart']
 p=r['cleanup_off_pipeline']
-assert p['editor_calls']==0 and p['raw_matches_asr'] and p['export_contains_full_raw']
+assert p['editor_calls']==0 and p['raw_matches_asr'] and p['archive_count_unchanged'] and p['temporary_audio_removed']
 assert r['long_writer_fixture']['all_chunks_readable_mono_16k']
 assert r['crash_recovery']['status']=='incomplete'
 print('Offline ASR, Cleanup OFF, complete export, writer fixture and recovery passed.')

@@ -9,7 +9,8 @@ let package = Package(
     targets: [
         .target(name: "TalkieCore"),
         .executableTarget(name: "Talkie", dependencies: ["TalkieCore", .product(name: "WhisperKit", package: "argmax-oss-swift")]),
-        .testTarget(name: "TalkieCoreTests", dependencies: ["TalkieCore"])
+        .testTarget(name: "TalkieCoreTests", dependencies: ["TalkieCore"]),
+        .testTarget(name: "TalkieTests", dependencies: ["Talkie"])
     ],
     swiftLanguageModes: [.v5]
 )
