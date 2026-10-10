@@ -23,8 +23,18 @@ final class BackgroundDictationTests: XCTestCase {
         insertion.capture()
         let first = await insertion.insert("Jangan deploy.")
         XCTAssertFalse(first.inserted); XCTAssertTrue(first.message.contains("Accessibility"))
+        XCTAssertEqual(first.failure, .accessibilityDenied)
         let duplicate = await insertion.insert("Jangan deploy.")
         XCTAssertFalse(duplicate.inserted); XCTAssertTrue(duplicate.message.contains("no retry"))
+        XCTAssertEqual(duplicate.failure, .duplicate)
+    }
+    @MainActor func testOfflineCaptureNeverChecksOrReadsAnExternalDestination() async {
+        let insertion = TextInsertionService(permissionCheck: { XCTFail("Offline capture must not request external UI access"); return true })
+        let id = UUID()
+        insertion.capture(operationID: id, allowDestination: false)
+        XCTAssertNil(insertion.target)
+        let result = await insertion.insert("synthetic fixture", operationID: id)
+        XCTAssertFalse(result.inserted); XCTAssertEqual(result.failure, .unavailable)
     }
     @MainActor func testClipboardLeaseRestoresMultipleRepresentationsOnlyWhileOwned() {
         let board = NSPasteboard(name: .init("talkie-tests-\(UUID().uuidString)"))

@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import Observation
+import OSLog
 import TalkieCore
 
 /// Owns one temporary voice-input operation. Shares the meeting capture/ASR/text
@@ -15,6 +16,11 @@ import TalkieCore
         var uncertain = false
         var reason = "idle"
         var temporaryAudioRemoved = true
+        var microphonePeak: Float = 0
+        var microphoneObserved = false
+        var missingIntervals = 0
+        var recognizedBytes = 0
+        var deliveryReason = "not_attempted"
     }
     struct FixtureResult { var raw: String; var output: String; var metrics: Metrics; var message: String }
     private let preferences: AppPreferences
@@ -22,6 +28,7 @@ import TalkieCore
     private let textService: LocalTextService
     private let insertion = TextInsertionService()
     private let overlay = RecordingOverlay()
+    private let logger = Logger(subsystem: "co.kewekiwi.talkie", category: "VoiceInput")
     private var capture: AudioRecorder?
     private var workspace: TransientDictationAudio?
     private var task: Task<Void, Never>?
@@ -62,6 +69,8 @@ import TalkieCore
         // Capture before any Talkie panel appears. Never refocus an old editor.
         insertion.capture(operationID: id)
         overlay.anchor = insertion.target?.anchor
+        overlay.inputLevel = 0
+        logger.info("dictation_requested cleanup=\(self.options?.cleanupEnabled == true, privacy: .public) auto_insert=\(self.options?.autoInsert != false, privacy: .public) destination_captured=\(self.insertion.target != nil, privacy: .public)")
         releaseWhileStarting = false; captureFailed = false; isBusy = true; phase = "Starting"; setCancellation?(true)
         overlay.show("Starting", detail: "Microphone · Esc to cancel", actions: [cancelAction])
         let microphoneID = options?.microphoneID ?? ""
@@ -71,12 +80,19 @@ import TalkieCore
                 let space = try TransientDictationAudio(); workspace = space
                 let session = RecordingSession(title: "Temporary voice input", kind: .dictation, sources: [.microphone])
                 let recorder = AudioRecorder(); localCapture = recorder
+                recorder.onMeters = { [weak self] levels in Task { @MainActor in
+                    guard let self, self.operationID == id else { return }
+                    self.metrics.microphoneObserved = true
+                    self.metrics.microphonePeak = max(self.metrics.microphonePeak, levels[.microphone] ?? 0)
+                    self.overlay.inputLevel = levels[.microphone] ?? 0
+                } }
                 recorder.onFailure = { [weak self] _ in Task { @MainActor in
                     guard let self, self.operationID == id else { return }; self.captureFailed = true; self.stop(interrupted: "Microphone capture was interrupted.")
                 } }
                 try await recorder.start(session: session, transientDirectory: space.directory, microphoneID: microphoneID, systemApp: nil)
                 try Task.checkCancellation(); if captureFailed { throw TalkieError.message("Microphone capture was interrupted.") }; guard operationID == id else { throw CancellationError() }
                 capture = recorder; localCapture = nil; isBusy = false; phase = "Recording"
+                logger.info("dictation_capture_ready")
                 overlay.show("Recording", detail: "Shortcut to stop · Esc to cancel", actions: [.init(title: "Stop", handler: { [weak self] in self?.stop() }), cancelAction])
                 recordingLimit = Task { [weak self] in
                     do { try await Task.sleep(for: .seconds(300)); guard let self, self.operationID == id else { return }; self.stop() } catch {}
@@ -104,17 +120,19 @@ import TalkieCore
         overlay.show("Transcribing", detail: "Local speech recognition · Esc to cancel", actions: [cancelAction])
         task = Task {
             defer { finish(id) }
+            var captureStopped = false
             do {
                 let session = try await capture.stop(incomplete: interrupted); self.capture = nil
+                captureStopped = true
                 try Task.checkCancellation()
                 _ = try await process(session, directory: workspace.directory, options: options, id: id, stopped: stopped)
             } catch {
                 self.capture = nil; insertion.clear()
-                metrics.reason = Task.isCancelled ? "cancelled" : "processing_failed"
+                metrics.reason = Task.isCancelled ? "cancelled" : (captureStopped ? "processing_failed" : "capture_failed")
                 metrics.stopToOutcomeMilliseconds = (ProcessInfo.processInfo.systemUptime - stopped) * 1000
-                notice = Task.isCancelled ? "Dictation cancelled." : "Speech recognition failed. No text was inserted."
+                notice = Task.isCancelled ? "Dictation cancelled." : (captureStopped ? "Speech processing failed. No text was inserted." : "Microphone capture could not finish. No text was inserted.")
                 if Task.isCancelled { clearRecovery() }
-                else { overlay.show("No insertion", detail: notice, actions: [dismissAction], dismissAfter: true) }
+                else { overlay.show(captureStopped ? "Processing failed" : "Capture failed", detail: notice, actions: [dismissAction], dismissAfter: true) }
             }
         }
     }
@@ -136,12 +154,18 @@ import TalkieCore
             do { try workspace.remove(); self.workspace = nil }
             catch { metrics.temporaryAudioRemoved = false; notice = "Temporary audio cleanup failed. Another recording is blocked until cleanup succeeds." }
         }
+        // Static reason codes and scalar timings/counts only. Never interpolate
+        // ASR/output strings, field/clipboard contents, dictionary or paths.
+        logger.info("dictation_finished reason=\(self.metrics.reason, privacy: .public) delivery=\(self.metrics.deliveryReason, privacy: .public) recognized_bytes=\(self.metrics.recognizedBytes, privacy: .public) missing_intervals=\(self.metrics.missingIntervals, privacy: .public) microphone_peak=\(self.metrics.microphonePeak, privacy: .public) asr_ms=\(self.metrics.recognitionMilliseconds, privacy: .public) cleanup_ms=\(self.metrics.cleanupMilliseconds, privacy: .public) inserted=\(self.metrics.inserted, privacy: .public) audio_removed=\(self.metrics.temporaryAudioRemoved, privacy: .public)")
     }
     private func process(_ session: RecordingSession, directory: URL, options: AppPreferences.Snapshot, id: UUID, stopped: Double, forcePaste: Bool = false) async throws -> FixtureResult {
         var version = TranscriptVersion(model: RecognitionService.identity, language: options.language, segments: [], coverage: session.coverage)
         let recognitionStart = ProcessInfo.processInfo.systemUptime
-        var complete = session.status != .incomplete
+        metrics.missingIntervals = session.coverage.filter { [.missing, .failed].contains($0.state) }.count
+        let captureComplete = session.status != .incomplete && metrics.missingIntervals == 0
+        var complete = captureComplete
         var recognitionFailed = false
+        logger.info("dictation_recognition_started missing_intervals=\(self.metrics.missingIntervals, privacy: .public) capture_complete=\(captureComplete, privacy: .public)")
         for index in version.coverage.indices {
             try Task.checkCancellation()
             guard let file = version.coverage[index].file else { complete = false; continue }
@@ -156,12 +180,20 @@ import TalkieCore
         metrics.recognitionMilliseconds = (ProcessInfo.processInfo.systemUptime - recognitionStart) * 1000
         complete = complete && !session.coverage.contains { [.missing, .failed].contains($0.state) }
         let raw = version.text
+        metrics.recognizedBytes = raw.utf8.count
         guard raw.utf8.count <= Self.maximumTextBytes else { throw TalkieError.message("Temporary text limit exceeded.") }
         guard complete, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             metrics.stopToOutcomeMilliseconds = (ProcessInfo.processInfo.systemUptime - stopped) * 1000
-            notice = recognitionFailed ? "Local ASR failed. Check the pinned speech model in Settings; nothing inserted." : (complete ? "No speech was recognized; nothing inserted." : "Capture or speech recognition was incomplete; nothing inserted.")
-            metrics.reason = recognitionFailed ? "asr_failed" : (complete ? "empty_asr" : "incomplete_asr")
-            recover(raw, outcome: .preview(notice)); return FixtureResult(raw: raw, output: raw, metrics: metrics, message: notice)
+            let title: String
+            if recognitionFailed { metrics.reason = "asr_failed"; title = "ASR failed"; notice = "Local ASR failed. Check the speech model in Settings; nothing inserted." }
+            else if !captureComplete { metrics.reason = "incomplete_capture"; title = "Capture interrupted"; notice = "Microphone capture had missing audio or was interrupted; nothing inserted." }
+            else if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                metrics.reason = "empty_asr"
+                let silent = metrics.microphoneObserved && metrics.microphonePeak < 0.001
+                title = silent ? "Microphone silent" : "No speech recognized"
+                notice = silent ? "No microphone signal was captured. Check the macOS input device and mute state." : "The speech model returned no recognizable speech. Try a clear, complete phrase."
+            } else { metrics.reason = "incomplete_asr"; title = "Recognition incomplete"; notice = "Some audio could not be recognized; nothing inserted." }
+            recover(raw, outcome: .preview(notice), title: title); return FixtureResult(raw: raw, output: raw, metrics: metrics, message: notice)
         }
         var output = raw; var withoutCleanup = false
         if options.cleanupEnabled {
@@ -180,10 +212,11 @@ import TalkieCore
         }
         try Task.checkCancellation(); guard operationID == id else { throw CancellationError() }
         let outcome: TextInsertionService.Outcome
-        if options.autoInsert == false { insertion.clear(); outcome = .preview("Auto Insert is OFF.") }
+        if options.autoInsert == false { insertion.clear(); outcome = .preview("Auto Insert is OFF. Enable it in the talkie menu.", failure: .autoInsertOff) }
         else { outcome = await insertion.insert(output, operationID: id, forcePasteForDiagnostic: forcePaste) }
         metrics.stopToOutcomeMilliseconds = (ProcessInfo.processInfo.systemUptime - stopped) * 1000
         metrics.inserted = outcome.inserted; metrics.uncertain = outcome.uncertain
+        metrics.deliveryReason = outcome.failure.rawValue
         metrics.stopToInsertMilliseconds = outcome.inserted ? metrics.stopToOutcomeMilliseconds : nil
         // Cancellation can arrive while bounded delivery verification awaits.
         // Do not resurrect preview text after Cancel already cleared recovery.
@@ -192,13 +225,14 @@ import TalkieCore
             notice = outcome.uncertain || outcome.inserted ? "Cancelled during delivery. Check the editor; no retry." : "Dictation cancelled."
             return FixtureResult(raw: "", output: "", metrics: metrics, message: notice)
         }
-        if metrics.reason == "idle" { metrics.reason = outcome.inserted ? "inserted" : "target_unavailable_or_uncertain" }
+        if !outcome.inserted { metrics.reason = outcome.failure.rawValue }
+        else if metrics.reason == "idle" { metrics.reason = "inserted" }
         notice = outcome.inserted && withoutCleanup ? "Inserted without cleanup." : outcome.message
         if outcome.inserted {
             clearRecovery()
             if withoutCleanup { overlay.show("Inserted without cleanup", detail: notice, dismissAfter: true) }
         }
-        else { recover(output, outcome: .preview(notice, uncertain: outcome.uncertain)) }
+        else { recover(output, outcome: outcome) }
         return FixtureResult(raw: raw, output: output, metrics: metrics, message: notice)
     }
     private func boundedCleanup(_ raw: String, options: AppPreferences.Snapshot) async throws -> (LocalTextService.CleanupResponse, LocalTextService.ModelIdentity) {
@@ -211,14 +245,15 @@ import TalkieCore
     }
     private var cancelAction: RecordingOverlay.Action { .init(title: "Cancel", handler: { [weak self] in self?.cancel() }) }
     private var dismissAction: RecordingOverlay.Action { .init(title: "Dismiss", handler: { [weak self] in self?.clearRecovery() }) }
-    private func recover(_ text: String, outcome: TextInsertionService.Outcome) {
-        clearRecovery(); guard !text.isEmpty else { overlay.show("No insertion", detail: outcome.message, dismissAfter: true); return }
+    private func recover(_ text: String, outcome: TextInsertionService.Outcome, title: String? = nil) {
+        let title = title ?? outcome.failure.title
+        clearRecovery(); guard !text.isEmpty else { overlay.show(title, detail: outcome.message, dismissAfter: true); return }
         guard recovery.replace(text), let id = recovery.id else { return }
         recoveryMessage = outcome.message; recoveryUncertain = outcome.uncertain
         // A sent but unconfirmed write may already be in the editor. Never cover
         // it with text/Copy controls or encourage a duplicate. Recovery is opt-in
         // from the menu bar and retains the same one-result, 60-second lifetime.
-        overlay.show(outcome.uncertain ? "Check editor" : "No insertion", detail: outcome.message + " Recovery is available in the talkie menu for 60 seconds.", dismissAfter: true)
+        overlay.show(title, detail: outcome.message + " Recovery is available in the talkie menu for 60 seconds.", dismissAfter: true)
         recoveryExpiry = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(Self.recoverySeconds)); guard let self, self.recovery.id == id else { return }; self.clearRecovery() } catch {}
         }
@@ -243,7 +278,7 @@ import TalkieCore
         guard !isActive else { throw TalkieError.message("Voice input is already active.") }
         clearRecovery(); let id = UUID(); operationID = id; metrics = Metrics(); isBusy = true
         defer { finish(id) }
-        insertion.capture(operationID: id)
+        insertion.capture(operationID: id, allowDestination: !allowedValues.isEmpty)
         overlay.anchor = insertion.target?.anchor
         if !allowedValues.contains(insertion.target?.value ?? "") { insertion.reject("Disposable fixture is not the active verified destination.") }
         if processingDelay > 0 { try await Task.sleep(for: .seconds(processingDelay)) }
@@ -252,6 +287,7 @@ import TalkieCore
         let outcome = await insertion.insert(text, operationID: id, forcePasteForDiagnostic: forcePaste)
         metrics.stopToOutcomeMilliseconds = (ProcessInfo.processInfo.systemUptime - start) * 1000
         metrics.inserted = outcome.inserted; metrics.uncertain = outcome.uncertain
+        metrics.deliveryReason = outcome.failure.rawValue
         metrics.reason = outcome.inserted ? "fixed_fixture_inserted" : "fixed_fixture_target_unavailable_or_uncertain"
         notice = outcome.message
         if outcome.inserted { clearRecovery() }
@@ -262,7 +298,7 @@ import TalkieCore
     func runFixture(file: URL, allowedValues: [String], forcePaste: Bool = false) async throws -> FixtureResult {
         guard !isActive else { throw TalkieError.message("Voice input is already active.") }
         clearRecovery(); let id = UUID(); operationID = id; metrics = Metrics(); isBusy = true; options = preferences.snapshot
-        insertion.capture(operationID: id)
+        insertion.capture(operationID: id, allowDestination: !allowedValues.isEmpty)
         overlay.anchor = insertion.target?.anchor
         if !allowedValues.contains(insertion.target?.value ?? "") { insertion.reject("Disposable fixture is not the active verified destination.") }
         defer { finish(id) }

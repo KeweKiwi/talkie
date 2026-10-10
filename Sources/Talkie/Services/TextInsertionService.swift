@@ -3,6 +3,36 @@ import ApplicationServices
 import TalkieCore
 
 @MainActor final class TextInsertionService {
+    enum Failure: String {
+        case none, unavailable, accessibilityDenied, unsafeField, textUnavailable, selectionUnavailable
+        case appChanged, fieldChanged, windowChanged, selectionChanged, textChanged
+        case autoInsertOff, pasteUnavailable, unconfirmed, cancelled, stale, duplicate, emptyText
+        var title: String {
+            switch self {
+            case .accessibilityDenied: return "Enable Accessibility"
+            case .unsafeField: return "Unsupported field"
+            case .textUnavailable, .selectionUnavailable: return "Editor unsupported"
+            case .unavailable: return "Choose text field"
+            case .appChanged, .fieldChanged, .windowChanged, .selectionChanged, .textChanged: return "Target changed"
+            case .autoInsertOff: return "Auto Insert OFF"
+            case .pasteUnavailable: return "Paste unavailable"
+            case .unconfirmed, .duplicate: return "Check editor"
+            case .cancelled, .stale: return "Cancelled"
+            case .emptyText: return "No speech"
+            case .none: return "Inserted"
+            }
+        }
+        var explanation: String {
+            switch self {
+            case .appChanged: return "The active application changed during dictation."
+            case .fieldChanged: return "The focused text field changed during dictation."
+            case .windowChanged: return "The editor window changed during dictation."
+            case .selectionChanged: return "The caret or selection changed during dictation."
+            case .textChanged: return "The text field content changed during dictation."
+            default: return title
+            }
+        }
+    }
     struct Target {
         let pid: pid_t
         let element: AXUIElement
@@ -17,7 +47,10 @@ import TalkieCore
         let inserted: Bool
         let message: String
         let uncertain: Bool
-        static func preview(_ message: String, uncertain: Bool = false) -> Self { Self(inserted: false, message: message, uncertain: uncertain) }
+        var failure: Failure = .none
+        static func preview(_ message: String, uncertain: Bool = false, failure: Failure = .unavailable) -> Self {
+            Self(inserted: false, message: message, uncertain: uncertain, failure: uncertain && failure == .unavailable ? .unconfirmed : failure)
+        }
     }
     private(set) var target: Target?
     private var activationObserver: NSObjectProtocol?
@@ -29,6 +62,7 @@ import TalkieCore
     private var generation = UUID()
     private var operationID: UUID?
     private var rejection = "No verified editable target."
+    private var rejectionFailure = Failure.unavailable
     private let permissionCheck: () -> Bool
     private let clipboard = ClipboardPasteLease()
     static var trusted: Bool { AXIsProcessTrusted() }
@@ -36,20 +70,25 @@ import TalkieCore
     init(permissionCheck: @escaping () -> Bool = { AXIsProcessTrusted() }) { self.permissionCheck = permissionCheck }
     var canRestoreClipboard: Bool { clipboard.hasRestorableBackup }
     func restoreClipboard() -> Bool { clipboard.restoreIfOwned() }
-    func reject(_ reason: String) { let id = operationID; clear(); operationID = id; rejection = reason }
-    func capture(operationID: UUID = UUID()) {
+    func reject(_ reason: String) { let id = operationID; clear(); operationID = id; rejection = reason; rejectionFailure = .unavailable }
+    func capture(operationID: UUID = UUID(), allowDestination: Bool = true) {
         clear(); attempted = false; generation = UUID(); self.operationID = operationID
-        guard permissionCheck() else { rejection = "Accessibility permission is unavailable."; return }
+        rejectionFailure = .unavailable
+        // Offline/negative fixtures have no authorized destination. Do not read
+        // a real editor just to reject it afterward.
+        guard allowDestination else { rejection = "No destination selected for this synthetic fixture."; return }
+        guard permissionCheck() else { rejection = "Accessibility permission is unavailable. Enable talkie in Privacy & Security → Accessibility."; rejectionFailure = .accessibilityDenied; return }
         guard let app = NSWorkspace.shared.frontmostApplication,
               app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { rejection = "Choose a text field in another app, then use the global shortcut."; return }
         rejection = "The field in \(app.localizedName ?? "the editor") does not expose verifiable text and selection."
         let deny = ["terminal", "iterm", "warp", "alacritty", "kitty", "hyper", "wezterm"]
-        guard !deny.contains(where: { (app.bundleIdentifier ?? "").lowercased().contains($0) }) else { rejection = "Terminal targets require manual Copy."; return }
+        guard !deny.contains(where: { (app.bundleIdentifier ?? "").lowercased().contains($0) }) else { rejection = "Terminal targets require manual Copy."; rejectionFailure = .unsafeField; return }
         let application = AXUIElementCreateApplication(app.processIdentifier)
-        guard let element = focusedElement(application), safeField(element),
-              let value = attribute(element, kAXValueAttribute) as? String,
-              let range = selectedRange(element),
-              DictationInsertionPolicy.replacing(value: value, location: range.location, length: range.length, text: "") != nil else { return }
+        guard let element = focusedElement(application) else { return }
+        guard safeField(element) else { rejectionFailure = .unsafeField; return }
+        guard let value = attribute(element, kAXValueAttribute) as? String else { rejectionFailure = .textUnavailable; return }
+        guard let range = selectedRange(element),
+              DictationInsertionPolicy.replacing(value: value, location: range.location, length: range.length, text: "") != nil else { rejectionFailure = .selectionUnavailable; return }
         var settable: DarwinBoolean = false
         let direct = AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success && settable.boolValue
         target = Target(pid: app.processIdentifier, element: element, window: windowElement(element), range: range, value: value, appName: app.localizedName ?? "Editor", directReplacement: direct, anchor: textAnchor(element, range: range))
@@ -58,7 +97,7 @@ import TalkieCore
             let pid = (notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
             Task { @MainActor in
                 guard let self, self.generation == captureGeneration, self.target != nil, pid != self.target?.pid else { return }
-                self.changed = true; self.rejection = "The active application changed during dictation."
+                self.changed = true; self.rejectionFailure = .appChanged; self.rejection = self.rejectionFailure.explanation
             }
         }
         // Web/Electron fields do not all support AX notifications. Observe what
@@ -81,13 +120,14 @@ import TalkieCore
     }
     func insert(_ text: String, operationID requestedID: UUID? = nil, forcePasteForDiagnostic: Bool = false) async -> Outcome {
         let deliveryID = operationID
-        guard requestedID == nil || requestedID == deliveryID else { return .preview("Stale dictation cancelled; no insertion.") }
-        guard !attempted else { return .preview("This result already attempted insertion. Check the editor; no retry.", uncertain: true) }
+        guard requestedID == nil || requestedID == deliveryID else { return .preview("Stale dictation cancelled; no insertion.", failure: .stale) }
+        guard !attempted else { return .preview("This result already attempted insertion. Check the editor; no retry.", uncertain: true, failure: .duplicate) }
         attempted = true
         defer { if operationID == deliveryID { clear() } }
-        guard !Task.isCancelled else { return .preview("Dictation cancelled; result retained.") }
-        guard let target, !changed, valid(target) else { return .preview("\(rejection) Preview retained; Copy to your intended field.") }
-        guard !text.isEmpty, let expected = DictationInsertionPolicy.replacing(value: target.value, location: target.range.location, length: target.range.length, text: text) else { return .preview("Empty text or invalid selection; preview retained.") }
+        guard !Task.isCancelled else { return .preview("Dictation cancelled; result retained.", failure: .cancelled) }
+        guard let target, !changed else { return .preview(rejection, failure: rejectionFailure) }
+        if let failure = validationFailure(target) { return .preview(failure.explanation, failure: failure) }
+        guard !text.isEmpty, let expected = DictationInsertionPolicy.replacing(value: target.value, location: target.range.location, length: target.range.length, text: text) else { return .preview("Empty text or invalid selection; nothing inserted.", failure: .emptyText) }
         writing = true
         if target.directReplacement && !forcePasteForDiagnostic {
             let status = AXUIElementSetAttributeValue(target.element, kAXSelectedTextAttribute as CFString, text as CFString)
@@ -97,7 +137,7 @@ import TalkieCore
             }
             guard [.attributeUnsupported, .notImplemented].contains(status), valid(target) else { return .preview("Editor declined or could not confirm insertion. Preview retained; no retry.", uncertain: true) }
         }
-        guard let paste = pasteMenuItem(AXUIElementCreateApplication(target.pid)), valid(target), clipboard.prepare(text) else { return .preview("The editor has no safe Paste action or the clipboard cannot be restored. Preview retained.") }
+        guard let paste = pasteMenuItem(AXUIElementCreateApplication(target.pid)), valid(target), clipboard.prepare(text) else { return .preview("The editor has no safe Paste action or the clipboard cannot be restored.", failure: .pasteUnavailable) }
         guard valid(target), clipboard.ownsClipboard, !Task.isCancelled else { clipboard.restoreIfOwned(); return .preview("Target or clipboard changed before Paste. Preview retained.") }
         let status = AXUIElementPerformAction(paste, kAXPressAction as CFString)
         if status == .success, await verify(target, expected: expected, operationID: deliveryID) {
@@ -165,15 +205,18 @@ import TalkieCore
     }
     private func observeTarget() {
         guard !writing, !changed, let target else { return }
-        if !valid(target) { changed = true; rejection = "The app, field, selection, or text changed during dictation." }
+        if let failure = validationFailure(target) { changed = true; rejectionFailure = failure; rejection = failure.explanation }
     }
-    private func valid(_ target: Target) -> Bool {
-        guard permissionCheck(), NSWorkspace.shared.frontmostApplication?.processIdentifier == target.pid,
-              let current = focusedElement(AXUIElementCreateApplication(target.pid)), CFEqual(current, target.element), safeField(current),
-              sameWindow(target.window, windowElement(current)),
-              let range = selectedRange(current), range.location == target.range.location, range.length == target.range.length,
-              attribute(current, kAXValueAttribute) as? String == target.value else { return false }
-        return true
+    private func valid(_ target: Target) -> Bool { validationFailure(target) == nil }
+    private func validationFailure(_ target: Target) -> Failure? {
+        guard permissionCheck() else { return .accessibilityDenied }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == target.pid else { return .appChanged }
+        guard let current = focusedElement(AXUIElementCreateApplication(target.pid)), CFEqual(current, target.element) else { return .fieldChanged }
+        guard safeField(current) else { return .unsafeField }
+        guard sameWindow(target.window, windowElement(current)) else { return .windowChanged }
+        guard let range = selectedRange(current), range.location == target.range.location, range.length == target.range.length else { return .selectionChanged }
+        guard attribute(current, kAXValueAttribute) as? String == target.value else { return .textChanged }
+        return nil
     }
     func clear() {
         generation = UUID(); operationID = nil

@@ -1,10 +1,15 @@
 import AppKit
 import SwiftUI
+import Observation
+
+@Observable @MainActor private final class InputMeter { var level: Float = 0 }
 
 @MainActor final class RecordingOverlay {
     private var panel: NSPanel?
     private var dismissTask: Task<Void, Never>?
     var anchor: CGRect?
+    private let meter = InputMeter()
+    var inputLevel: Float { get { meter.level } set { meter.level = min(1, max(0, newValue)) } }
     struct Action {
         let title: String
         let handler: () -> Void
@@ -18,6 +23,7 @@ import SwiftUI
         }
         let width: CGFloat = preview == nil ? 238 : 340
         let height: CGFloat = preview == nil ? 44 : 190
+        let meter = self.meter
         panel?.setContentSize(NSSize(width: width, height: height))
         panel?.contentView = NSHostingView(rootView: Group {
             if let preview {
@@ -30,7 +36,13 @@ import SwiftUI
             } else {
                 HStack(spacing: 10) {
                     if ["Starting", "Transcribing", "Cleaning"].contains(title) { ProgressView().controlSize(.small).scaleEffect(0.8) }
-                    else { Image(systemName: "waveform").foregroundStyle(.orange) }
+                    else if title == "Recording" {
+                        HStack(spacing: 2) {
+                            ForEach([0.65, 1.0, 0.8], id: \.self) { scale in
+                                Capsule().fill(.orange).frame(width: 3, height: 5 + CGFloat(meter.level) * 18 * scale)
+                            }
+                        }.frame(width: 17, height: 24).accessibilityLabel("Microphone input level")
+                    } else { Image(systemName: "waveform").foregroundStyle(.orange) }
                     Text(title).font(.system(size: 13, weight: .medium)).lineLimit(1)
                     Spacer(minLength: 0)
                     ForEach(actions.indices, id: \.self) { index in

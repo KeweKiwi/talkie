@@ -2,6 +2,18 @@
 
 This replaces the earlier saved-dictation and blanket cleanup-preview contract. The existing WhisperKit engine, capture/writer, pinned local text service, and persistent meeting workflow are retained.
 
+## Recognition and delivery diagnosis — 2026-10-10
+
+The user subsequently reported failed recognition/insertion with the generic “No insertion” status in the macOS application displayed as ChatGPT. The original failure has not been reproduced or resolved. It must not be counted as a successful live delivery.
+
+Voice input now reports separate capture interruption, ASR failure, empty recognition, disabled Auto Insert, unavailable editor capabilities, changed target, and unconfirmed-write outcomes. Recording shows the microphone level; the last static explanation remains in the menu after the compact indicator disappears. Recovery still opens only on request and expires after 60 seconds.
+
+The `co.kewekiwi.talkie` / `VoiceInput` unified-log category records operation boundaries, static reason codes, recognized byte counts, missing interval counts, peak microphone level and timings. It never records speech/output, field or clipboard contents, personal dictionary, application/window names or paths. A synthetic Cleanup OFF operation emitted recognition-start and finish events with 88 recognized bytes, no missing intervals, zero cleanup time, no external delivery and removed temporary audio. Negative/offline fixtures now skip external destination capture entirely instead of reading the current editor before rejecting it.
+
+All 23 Swift tests pass. Six synthetic ASR clips plus digital silence passed with networking denied, along with the transient Cleanup OFF, meeting export/writer and recovery regressions. An explicit three-second real microphone probe produced one continuous interval and removed its temporary WAVs; no transcription, playback or audio content inspection was performed. These checks establish working model/capture paths for those inputs, not recognition quality for the user's speech.
+
+Computer Use identifies the running application named ChatGPT as `com.openai.codex`, which it refuses to control. The user approved a blank Temporary Chat, but that approval does not remove the platform restriction. A physical shortcut test is pending; no live `dictation_requested` or `dictation_capture_ready` event has been observed yet. Do not inspect that protected app through alternate APIs, launch ChatGPT Classic as a substitute, or relax insertion validation without evidence from the actual failure.
+
 ## Compact caret popup — 2026-10-10
 
 The user reported successful live automatic insertion with Cleanup ON, accompanied by an unconfirmed-delivery recovery panel. The application/browser was not identified; this is user-reported ON delivery, not a completed native/browser OFF/ON matrix. No transcript from that report is retained here.

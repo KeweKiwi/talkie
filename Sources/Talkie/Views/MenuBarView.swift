@@ -7,6 +7,9 @@ struct MenuBarView: View {
     @Environment(\.openWindow) private var openWindow
     var body: some View {
         Text("talkie · \(store.displayPhase)")
+        if !store.dictation.isActive && store.dictation.metrics.reason != "idle" {
+            Text(store.dictation.notice).font(.caption)
+        }
         if store.active?.kind == .meeting {
             Button(store.isPaused ? "Resume Meeting" : "Pause Meeting") { store.pauseResume() }
             Button("Stop Meeting") { store.stopRecording() }.disabled(store.isBusy)

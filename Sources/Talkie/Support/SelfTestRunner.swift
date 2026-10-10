@@ -12,6 +12,22 @@ import TalkieCore
         func argument(_ name: String) -> String? { guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }; return args[i + 1] }
         guard let root = argument("--fixture-root"), let reportPath = argument("--report") else { return }
         var report: [String: Any] = ["microphone_permission": AVCaptureDevice.authorizationStatus(for: .audio).rawValue, "accessibility_trusted": AXIsProcessTrusted(), "screen_capture_permission": CGPreflightScreenCaptureAccess(), "synthetic_only": true]
+        if args.contains("--transient-capture-test") {
+            // Short, explicitly invoked live microphone probe. Never transcribe
+            // or report audio; inspect only numeric coverage and delete the WAVs.
+            report["synthetic_only"] = false
+            do {
+                let space = try TransientDictationAudio(); defer { try? space.remove() }
+                let recorder = AudioRecorder()
+                let session = RecordingSession(title: "Temporary capture probe", kind: .dictation, sources: [.microphone])
+                try await recorder.start(session: session, transientDirectory: space.directory, microphoneID: "", systemApp: nil)
+                try await Task.sleep(for: .seconds(3))
+                let stopped = try await recorder.stop()
+                report["transient_capture"] = ["status": stopped.status.rawValue, "duration": stopped.duration, "coverage": stopped.coverage.map { ["state": $0.state.rawValue, "start": $0.start, "end": $0.end] as [String: Any] }]
+                try space.remove(); report["temporary_audio_removed"] = true
+            } catch { report["capture_probe_error"] = "Capture probe failed; inspect permissions and input availability." }
+            write(report, to: reportPath); DispatchQueue.main.async { NSApp.terminate(nil) }; return
+        }
         if args.contains("--overlay-preview") {
             // Owned disposable UI only: no microphone, external field access,
             // ASR, delivery or model calls. Inspect the real panel's native size,
