@@ -46,7 +46,7 @@ import TalkieCore
             let caret = text.firstRect(forCharacterRange: NSRange(location: range.location, length: 0), actualRange: nil)
             let overlay = RecordingOverlay(); overlay.anchor = caret
             overlay.show("Recording", detail: "Shortcut to stop · Esc to cancel", actions: [.init(title: "Stop", handler: { overlay.hide() }), .init(title: "Cancel", handler: { overlay.hide() })])
-            report["overlay_preview"] = ["width": 238, "height": 44, "caret_bounds": [caret.minX, caret.minY, caret.width, caret.height]]
+            report["overlay_preview"] = ["width": 238, "height": 44, "caret_bounds": [caret.minX, caret.minY, caret.width, caret.height], "nonactivating": overlay.nonactivatingForDiagnostic, "ignores_mouse": overlay.ignoresMouseForDiagnostic, "selection_unchanged": text.selectedRange() == range]
             write(report, to: reportPath)
             while window.isVisible { try? await Task.sleep(for: .milliseconds(250)) }
             overlay.hide(); DispatchQueue.main.async { NSApp.terminate(nil) }; return
@@ -102,7 +102,7 @@ import TalkieCore
                 let store = AppStore(registerShortcut: false)
                 try await Task.sleep(for: .seconds(Double(argument("--focus-delay") ?? "15") ?? 15))
                 report["target_app"] = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
-                let metrics = try await store.dictation.runInsertionFixture(allowedValues: ["", "BEGIN [replace me] END", "BEGIN [replace me] END\n", "BEGIN  END", "BEGIN  END\n"], forcePaste: args.contains("--force-paste"), processingDelay: Double(argument("--processing-delay") ?? "0") ?? 0)
+                let metrics = try await store.dictation.runInsertionFixture(allowedValues: ["", "BEGIN [replace me] END", "BEGIN [replace me] END\n", "BEGIN  END", "BEGIN  END\n"], forcePaste: args.contains("--force-paste"), processingDelay: Double(argument("--processing-delay") ?? "0") ?? 0, requiredPID: argument("--target-pid").flatMap(Int32.init))
                 report["fixed_insertion"] = ["message": store.dictation.notice, "metrics": try JSONSerialization.jsonObject(with: JSONEncoder().encode(metrics))]
                 store.dictation.clearRecovery()
             } catch { report["insertion_error"] = error.localizedDescription }
@@ -146,7 +146,7 @@ import TalkieCore
                 try await Task.sleep(for: .seconds(Double(argument("--focus-delay") ?? "20") ?? 20))
                 report["target_app"] = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
                 let before = try store.repository?.load().count ?? 0
-                let result = try await store.dictation.runFixture(file: input, allowedValues: ["", "BEGIN [replace me] END", "BEGIN [replace me] END\n", "BEGIN  END", "BEGIN  END\n"], forcePaste: args.contains("--force-paste"))
+                let result = try await store.dictation.runFixture(file: input, allowedValues: ["", "BEGIN [replace me] END", "BEGIN [replace me] END\n", "BEGIN  END", "BEGIN  END\n"], forcePaste: args.contains("--force-paste"), requiredPID: argument("--target-pid").flatMap(Int32.init))
                 report["dictation_insertion"] = ["cleanup_on": preferences.cleanupEnabled, "editor_calls": await store.editorCallCount(), "message": result.message, "history_selection_unchanged": store.selectedID == nil, "raw_fixture": result.raw, "output_fixture": result.output, "insertion_status": result.message, "archive_count_unchanged": before == (try store.repository?.load().count ?? 0), "metrics": try JSONSerialization.jsonObject(with: JSONEncoder().encode(result.metrics))]
                 store.dictation.clearRecovery()
             } catch { report["insertion_error"] = error.localizedDescription }

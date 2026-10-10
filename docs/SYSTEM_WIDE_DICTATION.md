@@ -2,6 +2,16 @@
 
 This replaces the earlier saved-dictation and blanket cleanup-preview contract. The existing WhisperKit engine, capture/writer, pinned local text service, and persistent meeting workflow are retained.
 
+## General regression mitigation — 2026-10-10
+
+The user clarified that the regression affects text inputs generally, including browsers and other composers. It is not limited to ChatGPT. The following restores the pre-revamp destination-capture sequence and reduces interaction between the indicator and editor; the original live failure is still awaiting an observed failure code, so this is a mitigation rather than a verified resolution.
+
+Destination capture no longer performs the added `AXBoundsForRange` query. It freezes the same PID, field, window, value and selection as before the popup revamp and installs its observers first. Optional placement then reads ordinary field bounds separately; unsupported geometry cannot reject the destination. The small indicator now sits beside the input field rather than requesting exact caret geometry. Post-write whole-field verification and strict pre-write target checks remain intact.
+
+Normal indicators have no Stop/Cancel buttons and ignore mouse events. Start/stop uses the global shortcut; Escape cancels. Explicit menu recovery remains interactive. The owned preview reported `nonactivating=true`, `ignores_mouse=true` and `selection_unchanged=true`. All 23 Swift tests passed.
+
+Two fixed-text probes against a separate disposable native receiver were refused before reading any text: macOS still reported Codex as the actual foreground app after Computer Use raised/clicked the receiver. The new optional diagnostic `--target-pid` guard prevented reads of that unrelated foreground app. These attempts are not successful external-insertion evidence, and no focus validation was relaxed. A physical attempt in any disposable input is still required to verify the user's regression.
+
 ## Recognition and delivery diagnosis — 2026-10-10
 
 The user subsequently reported failed recognition/insertion with the generic “No insertion” status in the macOS application displayed as ChatGPT. The original failure has not been reproduced or resolved. It must not be counted as a successful live delivery.

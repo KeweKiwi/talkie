@@ -68,7 +68,7 @@ import TalkieCore
         let id = UUID(); operationID = id; metrics = Metrics(); options = preferences.snapshot
         // Capture before any Talkie panel appears. Never refocus an old editor.
         insertion.capture(operationID: id)
-        overlay.anchor = insertion.target?.anchor
+        overlay.anchor = insertion.overlayAnchor
         overlay.inputLevel = 0
         logger.info("dictation_requested cleanup=\(self.options?.cleanupEnabled == true, privacy: .public) auto_insert=\(self.options?.autoInsert != false, privacy: .public) destination_captured=\(self.insertion.target != nil, privacy: .public)")
         releaseWhileStarting = false; captureFailed = false; isBusy = true; phase = "Starting"; setCancellation?(true)
@@ -274,12 +274,12 @@ import TalkieCore
     func restoreClipboard() { notice = insertion.restoreClipboard() ? "Previous clipboard restored." : "Newer clipboard contents preserved." }
     /// Isolates Accessibility/Paste from speech recognition with a fixed known
     /// string and disposable target guard. Never runs on ordinary dictation.
-    func runInsertionFixture(allowedValues: [String], forcePaste: Bool = false, processingDelay: Double = 0) async throws -> Metrics {
+    func runInsertionFixture(allowedValues: [String], forcePaste: Bool = false, processingDelay: Double = 0, requiredPID: pid_t? = nil) async throws -> Metrics {
         guard !isActive else { throw TalkieError.message("Voice input is already active.") }
         clearRecovery(); let id = UUID(); operationID = id; metrics = Metrics(); isBusy = true
         defer { finish(id) }
-        insertion.capture(operationID: id, allowDestination: !allowedValues.isEmpty)
-        overlay.anchor = insertion.target?.anchor
+        insertion.capture(operationID: id, allowDestination: !allowedValues.isEmpty, requiredPID: requiredPID)
+        overlay.anchor = insertion.overlayAnchor
         if !allowedValues.contains(insertion.target?.value ?? "") { insertion.reject("Disposable fixture is not the active verified destination.") }
         if processingDelay > 0 { try await Task.sleep(for: .seconds(processingDelay)) }
         try Task.checkCancellation(); let start = ProcessInfo.processInfo.systemUptime
@@ -295,11 +295,11 @@ import TalkieCore
         return metrics
     }
     /// Explicit, synthetic-only harness; production ASR/cleanup/delivery is reused.
-    func runFixture(file: URL, allowedValues: [String], forcePaste: Bool = false) async throws -> FixtureResult {
+    func runFixture(file: URL, allowedValues: [String], forcePaste: Bool = false, requiredPID: pid_t? = nil) async throws -> FixtureResult {
         guard !isActive else { throw TalkieError.message("Voice input is already active.") }
         clearRecovery(); let id = UUID(); operationID = id; metrics = Metrics(); isBusy = true; options = preferences.snapshot
-        insertion.capture(operationID: id, allowDestination: !allowedValues.isEmpty)
-        overlay.anchor = insertion.target?.anchor
+        insertion.capture(operationID: id, allowDestination: !allowedValues.isEmpty, requiredPID: requiredPID)
+        overlay.anchor = insertion.overlayAnchor
         if !allowedValues.contains(insertion.target?.value ?? "") { insertion.reject("Disposable fixture is not the active verified destination.") }
         defer { finish(id) }
         let space = try TransientDictationAudio(); workspace = space

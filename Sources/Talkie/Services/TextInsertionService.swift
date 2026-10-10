@@ -41,7 +41,6 @@ import TalkieCore
         let value: String
         let appName: String
         let directReplacement: Bool
-        let anchor: CGRect?
     }
     struct Outcome {
         let inserted: Bool
@@ -71,7 +70,7 @@ import TalkieCore
     var canRestoreClipboard: Bool { clipboard.hasRestorableBackup }
     func restoreClipboard() -> Bool { clipboard.restoreIfOwned() }
     func reject(_ reason: String) { let id = operationID; clear(); operationID = id; rejection = reason; rejectionFailure = .unavailable }
-    func capture(operationID: UUID = UUID(), allowDestination: Bool = true) {
+    func capture(operationID: UUID = UUID(), allowDestination: Bool = true, requiredPID: pid_t? = nil) {
         clear(); attempted = false; generation = UUID(); self.operationID = operationID
         rejectionFailure = .unavailable
         // Offline/negative fixtures have no authorized destination. Do not read
@@ -79,7 +78,8 @@ import TalkieCore
         guard allowDestination else { rejection = "No destination selected for this synthetic fixture."; return }
         guard permissionCheck() else { rejection = "Accessibility permission is unavailable. Enable talkie in Privacy & Security → Accessibility."; rejectionFailure = .accessibilityDenied; return }
         guard let app = NSWorkspace.shared.frontmostApplication,
-              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { rejection = "Choose a text field in another app, then use the global shortcut."; return }
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+              requiredPID == nil || requiredPID == app.processIdentifier else { rejection = "Choose the intended external text field, then use the global shortcut."; return }
         rejection = "The field in \(app.localizedName ?? "the editor") does not expose verifiable text and selection."
         let deny = ["terminal", "iterm", "warp", "alacritty", "kitty", "hyper", "wezterm"]
         guard !deny.contains(where: { (app.bundleIdentifier ?? "").lowercased().contains($0) }) else { rejection = "Terminal targets require manual Copy."; rejectionFailure = .unsafeField; return }
@@ -91,7 +91,7 @@ import TalkieCore
               DictationInsertionPolicy.replacing(value: value, location: range.location, length: range.length, text: "") != nil else { rejectionFailure = .selectionUnavailable; return }
         var settable: DarwinBoolean = false
         let direct = AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success && settable.boolValue
-        target = Target(pid: app.processIdentifier, element: element, window: windowElement(element), range: range, value: value, appName: app.localizedName ?? "Editor", directReplacement: direct, anchor: textAnchor(element, range: range))
+        target = Target(pid: app.processIdentifier, element: element, window: windowElement(element), range: range, value: value, appName: app.localizedName ?? "Editor", directReplacement: direct)
         let captureGeneration = generation
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
             let pid = (notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
@@ -183,16 +183,13 @@ import TalkieCore
         guard AXUIElementCopyParameterizedAttributeValue(element, name as CFString, parameter, &result) == .success else { return nil }
         return result
     }
-    private func textAnchor(_ element: AXUIElement, range: CFRange) -> CGRect? {
+    /// Placement is optional presentation data. It is resolved only after the
+    /// destination and observers are captured, and cannot reject that capture.
+    /// Use ordinary field bounds; do not ask the editor to resolve a text range
+    /// or perform layout as part of starting voice input.
+    var overlayAnchor: CGRect? {
+        guard let element = target?.element else { return nil }
         guard let primary = NSScreen.screens.first?.frame else { return nil }
-        let caret = CFRange(location: range.location + range.length, length: 0)
-        if let value = parameterized(element, kAXBoundsForRangeParameterizedAttribute, range: caret), CFGetTypeID(value) == AXValueGetTypeID() {
-            var rect = CGRect.zero
-            if AXValueGetValue(value as! AXValue, .cgRect, &rect), usable(rect) {
-                return DictationOverlayPlacement.appKitRect(rect, primaryScreen: primary)
-            }
-        }
-        // Editors without caret geometry can still expose their field bounds.
         guard let position = attribute(element, kAXPositionAttribute), CFGetTypeID(position) == AXValueGetTypeID(),
               let size = attribute(element, kAXSizeAttribute), CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
         var point = CGPoint.zero, dimensions = CGSize.zero

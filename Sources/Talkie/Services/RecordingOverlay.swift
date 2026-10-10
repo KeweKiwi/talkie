@@ -10,6 +10,8 @@ import Observation
     var anchor: CGRect?
     private let meter = InputMeter()
     var inputLevel: Float { get { meter.level } set { meter.level = min(1, max(0, newValue)) } }
+    var nonactivatingForDiagnostic: Bool { panel?.canBecomeKey == false && panel?.canBecomeMain == false }
+    var ignoresMouseForDiagnostic: Bool { panel?.ignoresMouseEvents == true }
     struct Action {
         let title: String
         let handler: () -> Void
@@ -24,6 +26,10 @@ import Observation
         let width: CGFloat = preview == nil ? 238 : 340
         let height: CGFloat = preview == nil ? 44 : 190
         let meter = self.meter
+        // Ordinary dictation is controlled by the global shortcut and Escape.
+        // The indicator must never receive a click or become an editor target.
+        // Explicit recovery remains interactive when opened from the menu.
+        panel?.ignoresMouseEvents = preview == nil
         panel?.setContentSize(NSSize(width: width, height: height))
         panel?.contentView = NSHostingView(rootView: Group {
             if let preview {
@@ -45,14 +51,6 @@ import Observation
                     } else { Image(systemName: "waveform").foregroundStyle(.orange) }
                     Text(title).font(.system(size: 13, weight: .medium)).lineLimit(1)
                     Spacer(minLength: 0)
-                    ForEach(actions.indices, id: \.self) { index in
-                        let action = actions[index]
-                        Button(action: action.handler) {
-                            Image(systemName: action.title == "Stop" ? "stop.fill" : "xmark")
-                                .font(.system(size: 10, weight: .semibold)).frame(width: 22, height: 22)
-                                .background(.primary.opacity(0.08), in: Circle())
-                        }.buttonStyle(.plain).help(action.title).accessibilityLabel(action.title)
-                    }
                 }.padding(.horizontal, 12).help("talkie · \(title). \(detail)").accessibilityLabel("talkie · \(title). \(detail)")
             }
         }.frame(width: width, height: height).background(.regularMaterial, in: RoundedRectangle(cornerRadius: preview == nil ? 12 : 16)))
