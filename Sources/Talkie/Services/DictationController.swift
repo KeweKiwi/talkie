@@ -28,6 +28,8 @@ import TalkieCore
     private var recordingLimit: Task<Void, Never>?
     private var recoveryExpiry: Task<Void, Never>?
     private var recovery = TransientRecovery()
+    private var recoveryMessage = ""
+    private(set) var recoveryUncertain = false
     private var operationID: UUID?
     private var options: AppPreferences.Snapshot?
     private var releaseWhileStarting = false
@@ -59,6 +61,7 @@ import TalkieCore
         let id = UUID(); operationID = id; metrics = Metrics(); options = preferences.snapshot
         // Capture before any Talkie panel appears. Never refocus an old editor.
         insertion.capture(operationID: id)
+        overlay.anchor = insertion.target?.anchor
         releaseWhileStarting = false; captureFailed = false; isBusy = true; phase = "Starting"; setCancellation?(true)
         overlay.show("Starting", detail: "Microphone · Esc to cancel", actions: [cancelAction])
         let microphoneID = options?.microphoneID ?? ""
@@ -84,7 +87,7 @@ import TalkieCore
                 if operationID == id {
                     metrics.reason = Task.isCancelled ? "cancelled" : "capture_failed"
                     notice = Task.isCancelled ? "Dictation cancelled." : "Microphone or temporary audio could not start. Check permissions and storage."
-                    overlay.show("Could not start", detail: notice, actions: [dismissAction])
+                    overlay.show("Could not start", detail: notice, actions: [dismissAction], dismissAfter: true)
                     finish(id)
                 }
             }
@@ -111,7 +114,7 @@ import TalkieCore
                 metrics.stopToOutcomeMilliseconds = (ProcessInfo.processInfo.systemUptime - stopped) * 1000
                 notice = Task.isCancelled ? "Dictation cancelled." : "Speech recognition failed. No text was inserted."
                 if Task.isCancelled { clearRecovery() }
-                else { overlay.show("No insertion", detail: notice, actions: [dismissAction]) }
+                else { overlay.show("No insertion", detail: notice, actions: [dismissAction], dismissAfter: true) }
             }
         }
     }
@@ -191,7 +194,10 @@ import TalkieCore
         }
         if metrics.reason == "idle" { metrics.reason = outcome.inserted ? "inserted" : "target_unavailable_or_uncertain" }
         notice = outcome.inserted && withoutCleanup ? "Inserted without cleanup." : outcome.message
-        if outcome.inserted { clearRecovery(); overlay.show("Inserted", detail: notice, dismissAfter: true) }
+        if outcome.inserted {
+            clearRecovery()
+            if withoutCleanup { overlay.show("Inserted without cleanup", detail: notice, dismissAfter: true) }
+        }
         else { recover(output, outcome: .preview(notice, uncertain: outcome.uncertain)) }
         return FixtureResult(raw: raw, output: output, metrics: metrics, message: notice)
     }
@@ -206,20 +212,30 @@ import TalkieCore
     private var cancelAction: RecordingOverlay.Action { .init(title: "Cancel", handler: { [weak self] in self?.cancel() }) }
     private var dismissAction: RecordingOverlay.Action { .init(title: "Dismiss", handler: { [weak self] in self?.clearRecovery() }) }
     private func recover(_ text: String, outcome: TextInsertionService.Outcome) {
-        clearRecovery(); guard !text.isEmpty else { overlay.show("No insertion", detail: outcome.message, actions: [dismissAction]); return }
+        clearRecovery(); guard !text.isEmpty else { overlay.show("No insertion", detail: outcome.message, dismissAfter: true); return }
         guard recovery.replace(text), let id = recovery.id else { return }
-        var actions = [RecordingOverlay.Action(title: "Copy", handler: { [weak self] in
-            guard let self, let text = self.recovery.take(id: id) else { return }
-            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string); self.clearRecovery()
-        })]
-        if canRestoreClipboard { actions.append(.init(title: "Restore Clipboard", handler: { [weak self] in self?.restoreClipboard() })) }
-        actions.append(dismissAction)
-        overlay.show(outcome.uncertain ? "Check editor before copying" : "Temporary recovery", detail: outcome.message + " Expires in 60 seconds.", actions: actions, preview: text)
+        recoveryMessage = outcome.message; recoveryUncertain = outcome.uncertain
+        // A sent but unconfirmed write may already be in the editor. Never cover
+        // it with text/Copy controls or encourage a duplicate. Recovery is opt-in
+        // from the menu bar and retains the same one-result, 60-second lifetime.
+        overlay.show(outcome.uncertain ? "Check editor" : "No insertion", detail: outcome.message + " Recovery is available in the talkie menu for 60 seconds.", dismissAfter: true)
         recoveryExpiry = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(Self.recoverySeconds)); guard let self, self.recovery.id == id else { return }; self.clearRecovery() } catch {}
         }
     }
-    func clearRecovery() { recoveryExpiry?.cancel(); recoveryExpiry = nil; recovery.clear(); overlay.hide() }
+    func showRecovery() {
+        recovery.expire()
+        guard let text = recovery.text, let id = recovery.id else { clearRecovery(); return }
+        var actions = [RecordingOverlay.Action(title: "Copy", handler: { [weak self] in
+            guard let self else { return }
+            guard let text = self.recovery.take(id: id) else { self.clearRecovery(); return }
+            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string); self.clearRecovery()
+        })]
+        if canRestoreClipboard { actions.append(.init(title: "Restore Clipboard", handler: { [weak self] in self?.restoreClipboard() })) }
+        actions.append(dismissAction)
+        overlay.show(recoveryUncertain ? "Check editor before copying" : "Temporary recovery", detail: recoveryMessage, actions: actions, preview: text)
+    }
+    func clearRecovery() { recoveryExpiry?.cancel(); recoveryExpiry = nil; recovery.clear(); recoveryMessage = ""; recoveryUncertain = false; overlay.hide() }
     func restoreClipboard() { notice = insertion.restoreClipboard() ? "Previous clipboard restored." : "Newer clipboard contents preserved." }
     /// Isolates Accessibility/Paste from speech recognition with a fixed known
     /// string and disposable target guard. Never runs on ordinary dictation.
@@ -228,6 +244,7 @@ import TalkieCore
         clearRecovery(); let id = UUID(); operationID = id; metrics = Metrics(); isBusy = true
         defer { finish(id) }
         insertion.capture(operationID: id)
+        overlay.anchor = insertion.target?.anchor
         if !allowedValues.contains(insertion.target?.value ?? "") { insertion.reject("Disposable fixture is not the active verified destination.") }
         if processingDelay > 0 { try await Task.sleep(for: .seconds(processingDelay)) }
         try Task.checkCancellation(); let start = ProcessInfo.processInfo.systemUptime
@@ -237,7 +254,7 @@ import TalkieCore
         metrics.inserted = outcome.inserted; metrics.uncertain = outcome.uncertain
         metrics.reason = outcome.inserted ? "fixed_fixture_inserted" : "fixed_fixture_target_unavailable_or_uncertain"
         notice = outcome.message
-        if outcome.inserted { overlay.show("Inserted", detail: notice, dismissAfter: true) }
+        if outcome.inserted { clearRecovery() }
         else { recover(text, outcome: outcome) }
         return metrics
     }
@@ -246,6 +263,7 @@ import TalkieCore
         guard !isActive else { throw TalkieError.message("Voice input is already active.") }
         clearRecovery(); let id = UUID(); operationID = id; metrics = Metrics(); isBusy = true; options = preferences.snapshot
         insertion.capture(operationID: id)
+        overlay.anchor = insertion.target?.anchor
         if !allowedValues.contains(insertion.target?.value ?? "") { insertion.reject("Disposable fixture is not the active verified destination.") }
         defer { finish(id) }
         let space = try TransientDictationAudio(); workspace = space

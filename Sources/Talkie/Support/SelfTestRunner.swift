@@ -12,6 +12,29 @@ import TalkieCore
         func argument(_ name: String) -> String? { guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }; return args[i + 1] }
         guard let root = argument("--fixture-root"), let reportPath = argument("--report") else { return }
         var report: [String: Any] = ["microphone_permission": AVCaptureDevice.authorizationStatus(for: .audio).rawValue, "accessibility_trusted": AXIsProcessTrusted(), "screen_capture_permission": CGPreflightScreenCaptureAccess(), "synthetic_only": true]
+        if args.contains("--overlay-preview") {
+            // Owned disposable UI only: no microphone, external field access,
+            // ASR, delivery or model calls. Inspect the real panel's native size,
+            // placement and nonactivating controls without reading other apps.
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 360), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.title = "talkie · Disposable Overlay Preview"; window.isReleasedWhenClosed = false
+            let scroll = NSScrollView(frame: NSRect(x: 24, y: 24, width: 592, height: 312))
+            scroll.borderType = .bezelBorder; scroll.hasVerticalScroller = true
+            let text = NSTextView(frame: scroll.bounds)
+            text.font = .systemFont(ofSize: 18); text.textContainerInset = NSSize(width: 16, height: 16)
+            text.string = "Disposable popup fixture\n\nBEGIN [replace me] END"
+            scroll.documentView = text; window.contentView?.addSubview(scroll)
+            window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); window.makeFirstResponder(text)
+            let range = (text.string as NSString).range(of: "[replace me]")
+            text.setSelectedRange(range)
+            let caret = text.firstRect(forCharacterRange: NSRange(location: range.location, length: 0), actualRange: nil)
+            let overlay = RecordingOverlay(); overlay.anchor = caret
+            overlay.show("Recording", detail: "Shortcut to stop · Esc to cancel", actions: [.init(title: "Stop", handler: { overlay.hide() }), .init(title: "Cancel", handler: { overlay.hide() })])
+            report["overlay_preview"] = ["width": 238, "height": 44, "caret_bounds": [caret.minX, caret.minY, caret.width, caret.height]]
+            write(report, to: reportPath)
+            while window.isVisible { try? await Task.sleep(for: .milliseconds(250)) }
+            overlay.hide(); DispatchQueue.main.async { NSApp.terminate(nil) }; return
+        }
         if args.contains("--quit-recording-test") {
             // Explicit short live microphone/quit diagnostic. Audio stays in
             // ignored isolated storage; it is never transcribed or reported.

@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor final class RecordingOverlay {
     private var panel: NSPanel?
     private var dismissTask: Task<Void, Never>?
+    var anchor: CGRect?
     struct Action {
         let title: String
         let handler: () -> Void
@@ -15,25 +16,35 @@ import SwiftUI
             p.level = .floating; p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]; p.isOpaque = false; p.backgroundColor = .clear
             p.hasShadow = true; p.hidesOnDeactivate = false; p.becomesKeyOnlyIfNeeded = true; panel = p
         }
-        let width: CGFloat = preview == nil ? 380 : 440
-        let height: CGFloat = preview == nil ? 120 : 270
+        let width: CGFloat = preview == nil ? 238 : 340
+        let height: CGFloat = preview == nil ? 44 : 190
         panel?.setContentSize(NSSize(width: width, height: height))
-        panel?.contentView = NSHostingView(rootView: VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                Image(systemName: "waveform").foregroundStyle(.orange).font(.title2)
-                Text("talkie · \(title)").font(.headline)
-                Spacer()
+        panel?.contentView = NSHostingView(rootView: Group {
+            if let preview {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label(title, systemImage: "waveform").font(.headline)
+                    Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                    Text(preview).font(.body).lineLimit(3).frame(maxWidth: .infinity, alignment: .leading)
+                    HStack { ForEach(actions.indices, id: \.self) { index in Button(actions[index].title, action: actions[index].handler) } }.buttonStyle(.bordered).controlSize(.small)
+                }.padding(14)
+            } else {
+                HStack(spacing: 10) {
+                    if ["Starting", "Transcribing", "Cleaning"].contains(title) { ProgressView().controlSize(.small).scaleEffect(0.8) }
+                    else { Image(systemName: "waveform").foregroundStyle(.orange) }
+                    Text(title).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                    Spacer(minLength: 0)
+                    ForEach(actions.indices, id: \.self) { index in
+                        let action = actions[index]
+                        Button(action: action.handler) {
+                            Image(systemName: action.title == "Stop" ? "stop.fill" : "xmark")
+                                .font(.system(size: 10, weight: .semibold)).frame(width: 22, height: 22)
+                                .background(.primary.opacity(0.08), in: Circle())
+                        }.buttonStyle(.plain).help(action.title).accessibilityLabel(action.title)
+                    }
+                }.padding(.horizontal, 12).help("talkie · \(title). \(detail)").accessibilityLabel("talkie · \(title). \(detail)")
             }
-            Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(preview == nil ? 2 : 4)
-            if let preview { Text(preview).font(.body).lineLimit(5).frame(maxWidth: .infinity, alignment: .leading) }
-            if !actions.isEmpty {
-                HStack { ForEach(actions.indices, id: \.self) { index in Button(actions[index].title, action: actions[index].handler) } }.buttonStyle(.bordered).controlSize(.small)
-            }
-            Spacer(minLength: 0)
-        }.padding(16).frame(width: width, height: height).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)))
-        if let screen = NSScreen.main {
-            panel?.setFrameOrigin(NSPoint(x: screen.visibleFrame.midX - width / 2, y: screen.visibleFrame.minY + 36))
-        }
+        }.frame(width: width, height: height).background(.regularMaterial, in: RoundedRectangle(cornerRadius: preview == nil ? 12 : 16)))
+        panel?.setFrame(DictationOverlayPlacement.frame(size: CGSize(width: width, height: height), anchor: anchor, visibleScreens: NSScreen.screens.map(\.visibleFrame)), display: true)
         panel?.orderFrontRegardless()
         if dismissAfter {
             dismissTask = Task { [weak self] in

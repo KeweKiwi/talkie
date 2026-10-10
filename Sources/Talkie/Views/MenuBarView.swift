@@ -17,6 +17,9 @@ struct MenuBarView: View {
         }
         Toggle("Auto Insert", isOn: Binding(get: { store.preferences.autoInsert }, set: { store.preferences.autoInsert = $0 }))
         Toggle("AI Cleanup", isOn: Binding(get: { store.preferences.cleanupEnabled }, set: { store.preferences.cleanupEnabled = $0 }))
+        if store.dictation.hasRecovery {
+            Button(store.dictation.recoveryUncertain ? "Check Last Insertion…" : "Recover Dictation…") { store.dictation.showRecovery() }
+        }
         if store.hasPendingClipboardRestore { Button("Restore Previous Clipboard") { store.restorePreviousClipboard() } }
         Divider()
         Button("Open Meetings") { openWindow(id: "main"); NSApp.activate(ignoringOtherApps: true) }

@@ -11,6 +11,7 @@ import TalkieCore
         let value: String
         let appName: String
         let directReplacement: Bool
+        let anchor: CGRect?
     }
     struct Outcome {
         let inserted: Bool
@@ -51,7 +52,7 @@ import TalkieCore
               DictationInsertionPolicy.replacing(value: value, location: range.location, length: range.length, text: "") != nil else { return }
         var settable: DarwinBoolean = false
         let direct = AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success && settable.boolValue
-        target = Target(pid: app.processIdentifier, element: element, window: windowElement(element), range: range, value: value, appName: app.localizedName ?? "Editor", directReplacement: direct)
+        target = Target(pid: app.processIdentifier, element: element, window: windowElement(element), range: range, value: value, appName: app.localizedName ?? "Editor", directReplacement: direct, anchor: textAnchor(element, range: range))
         let captureGeneration = generation
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] notification in
             let pid = (notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
@@ -108,16 +109,59 @@ import TalkieCore
         return .preview("Paste could not be confirmed. Check the editor before copying. Previous clipboard is available via Restore Clipboard while talkie still owns it; no retry.", uncertain: true)
     }
     private func verify(_ target: Target, expected: String, operationID id: UUID?) async -> Bool {
+        // Revalidate focus/selection before writing, but verify the ORIGINAL
+        // destination's content afterward. Web editors can rebuild their focused
+        // AX node or move the caret as a consequence of a successful write.
+        // Never search a different field or treat AX success as delivery proof.
+        await Self.confirmDelivery(expected: expected,
+            isCurrent: { self.operationID == id && self.permissionCheck() },
+            readValue: { self.attribute(target.element, kAXValueAttribute) as? String },
+            readFullText: { self.entireText(target.element) })
+    }
+    static func confirmDelivery(expected: String, isCurrent: () -> Bool, readValue: () -> String?, readFullText: () -> String?, pause: () async throws -> Void = { try await Task.sleep(for: .milliseconds(50)) }) async -> Bool {
         for _ in 0..<30 {
-            guard operationID == id, !Task.isCancelled else { return false }
-            if NSWorkspace.shared.frontmostApplication?.processIdentifier == target.pid,
-               let focused = focusedElement(AXUIElementCreateApplication(target.pid)), CFEqual(focused, target.element), sameWindow(target.window, windowElement(focused)),
-               let observed = attribute(target.element, kAXValueAttribute) as? String,
-               DictationInsertionPolicy.equivalent(observed, expected) { return true }
-            if Task.isCancelled { return false }
-            do { try await Task.sleep(for: .milliseconds(50)) } catch { return false }
+            guard isCurrent(), !Task.isCancelled else { return false }
+            if let value = readValue(), DictationInsertionPolicy.equivalent(value, expected) { return true }
+            // Some editors expose stale AXValue while the full text-range API
+            // already reflects the write. Compare the ENTIRE field, not a prefix.
+            if let text = readFullText(), DictationInsertionPolicy.equivalent(text, expected) { return true }
+            do { try await pause() } catch { return false }
         }
         return false
+    }
+    private func entireText(_ element: AXUIElement) -> String? {
+        guard let count = attribute(element, kAXNumberOfCharactersAttribute) as? NSNumber,
+              count.intValue >= 0, count.intValue <= 1_048_576 else { return nil }
+        let range = CFRange(location: 0, length: count.intValue)
+        if let text = parameterized(element, kAXStringForRangeParameterizedAttribute, range: range) as? String { return text }
+        return (parameterized(element, kAXAttributedStringForRangeParameterizedAttribute, range: range) as? NSAttributedString)?.string
+    }
+    private func parameterized(_ element: AXUIElement, _ name: String, range: CFRange) -> CFTypeRef? {
+        var range = range
+        guard let parameter = AXValueCreate(.cfRange, &range) else { return nil }
+        var result: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(element, name as CFString, parameter, &result) == .success else { return nil }
+        return result
+    }
+    private func textAnchor(_ element: AXUIElement, range: CFRange) -> CGRect? {
+        guard let primary = NSScreen.screens.first?.frame else { return nil }
+        let caret = CFRange(location: range.location + range.length, length: 0)
+        if let value = parameterized(element, kAXBoundsForRangeParameterizedAttribute, range: caret), CFGetTypeID(value) == AXValueGetTypeID() {
+            var rect = CGRect.zero
+            if AXValueGetValue(value as! AXValue, .cgRect, &rect), usable(rect) {
+                return DictationOverlayPlacement.appKitRect(rect, primaryScreen: primary)
+            }
+        }
+        // Editors without caret geometry can still expose their field bounds.
+        guard let position = attribute(element, kAXPositionAttribute), CFGetTypeID(position) == AXValueGetTypeID(),
+              let size = attribute(element, kAXSizeAttribute), CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
+        var point = CGPoint.zero, dimensions = CGSize.zero
+        guard AXValueGetValue(position as! AXValue, .cgPoint, &point), AXValueGetValue(size as! AXValue, .cgSize, &dimensions) else { return nil }
+        let rect = CGRect(origin: point, size: dimensions)
+        return usable(rect) ? DictationOverlayPlacement.appKitRect(rect, primaryScreen: primary) : nil
+    }
+    private func usable(_ rect: CGRect) -> Bool {
+        rect.minX.isFinite && rect.minY.isFinite && rect.width.isFinite && rect.height.isFinite && rect.width >= 0 && rect.height > 0
     }
     private func observeTarget() {
         guard !writing, !changed, let target else { return }
